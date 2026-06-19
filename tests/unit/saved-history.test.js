@@ -70,17 +70,6 @@ describe('renderSavedHistory', () => {
     expect(app.dom.savedList.querySelectorAll('.history-row')).toHaveLength(1);
   });
 
-  it('history: clear button empties all history', () => {
-    const app = makeApp();
-    app.state.sidePanel = 'history';
-    app.state.history = [{ id: 'h1', sql: 'SELECT 1', ts: Date.now(), rows: 3, ms: 4 }];
-    renderSavedHistory(app);
-    click(app.dom.savedList.querySelector('.clear-btn'));
-    expect(app.state.history).toEqual([]);
-    expect(app.saveJSON).toHaveBeenCalled();
-    expect(app.dom.savedList.textContent).toContain('No history yet.');
-  });
-
   it('switching panels persists the choice', () => {
     const app = makeApp();
     app.state.sidePanel = 'saved';

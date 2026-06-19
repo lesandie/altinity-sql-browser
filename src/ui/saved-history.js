@@ -3,7 +3,7 @@
 import { h } from './dom.js';
 import { Icon } from './icons.js';
 import { timeAgo } from '../core/format.js';
-import { deleteSaved, deleteHistory, clearHistory } from '../state.js';
+import { deleteSaved, deleteHistory } from '../state.js';
 
 export function renderSavedHistory(app) {
   const tabsRow = app.dom.savedTabsRow;
@@ -53,11 +53,6 @@ function renderHistory(app, list) {
     list.appendChild(h('div', { class: 'saved-empty' }, 'No history yet.'));
     return;
   }
-  list.appendChild(h('div', { class: 'list-head' },
-    h('button', {
-      class: 'clear-btn', title: 'Clear all history',
-      onclick: () => { clearHistory(state, app.saveJSON); renderSavedHistory(app); },
-    }, 'Clear history')));
   for (const ent of state.history) {
     list.appendChild(h('div', { class: 'history-row', onclick: () => app.actions.loadIntoNewTab('From history', ent.sql) },
       h('button', {

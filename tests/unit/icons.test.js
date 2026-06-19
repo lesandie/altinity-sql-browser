@@ -26,6 +26,12 @@ describe('svgFilled', () => {
     const el = svgFilled('M0 0z', 16, 16);
     expect(el.getAttribute('fill')).toBe('currentColor');
     expect(el.getAttribute('width')).toBe('16');
+    expect(el.getAttribute('viewBox')).toBe('0 0 16 16');
+  });
+  it('honours an explicit viewBox distinct from the display size', () => {
+    const el = svgFilled('M0 0z', 15, 15, 24, 24);
+    expect(el.getAttribute('width')).toBe('15');
+    expect(el.getAttribute('viewBox')).toBe('0 0 24 24');
   });
 });
 

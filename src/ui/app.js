@@ -347,7 +347,11 @@ export function renderApp(app, helpers) {
     h('button', { class: 'hd-btn', title: 'Keyboard shortcuts (?)', onclick: () => app.actions.openShortcuts() }, Icon.shortcuts()),
     app.dom.themeBtn,
     h('div', { class: 'user-email', title: app.email() }, app.email()),
-    h('button', { class: 'hd-btn text', title: 'Sign out', onclick: () => app.signOut() }, 'Sign out'));
+    h('button', { class: 'hd-btn text', title: 'Log out', onclick: () => app.signOut() }, 'Log Out'),
+    h('a', {
+      class: 'hd-btn', href: 'https://github.com/Altinity/altinity-sql-browser',
+      target: '_blank', rel: 'noopener noreferrer', title: 'View source on GitHub',
+    }, Icon.github()));
 
   app.dom.schemaSearchInput = h('input', {
     type: 'text', placeholder: 'Search tables, columns…',

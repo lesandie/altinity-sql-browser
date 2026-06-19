@@ -110,6 +110,15 @@ describe('renderApp shell', () => {
     expect(e.sessionStorage.getItem('oauth_id_token')).toBeNull();
     expect(app.root.querySelector('.login-screen')).not.toBeNull();
   });
+  it('header has a Log Out button and a GitHub source link', () => {
+    const { app } = rendered();
+    expect(app.root.querySelector('.hd-btn.text').textContent).toContain('Log Out');
+    const gh = app.root.querySelector('a.hd-btn[href*="github.com"]');
+    expect(gh).not.toBeNull();
+    expect(gh.getAttribute('target')).toBe('_blank');
+    expect(gh.getAttribute('rel')).toContain('noopener');
+    expect(gh.querySelector('svg')).not.toBeNull();
+  });
   it('setTokens clears the one-shot pkce verifier and csrf state', () => {
     const e = env({ sessionStorage: memSession({ oauth_verifier: 'v', oauth_state: 's' }) });
     const app = createApp(e);
