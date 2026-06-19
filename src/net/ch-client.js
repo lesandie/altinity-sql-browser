@@ -101,7 +101,7 @@ export async function loadSchema(ctx) {
       columns: null,
     });
   }
-  return [...byDb.entries()].map(([db, tables], i) => ({ db, expanded: i === 0, tables }));
+  return [...byDb.entries()].map(([db, tables]) => ({ db, expanded: false, tables }));
 }
 
 /** Load the columns of one table. Returns [{name,type,comment}]. */

@@ -129,7 +129,7 @@ describe('loadServerVersion', () => {
 });
 
 describe('loadSchema', () => {
-  it('groups tables by db, first db expanded, defaults comment', async () => {
+  it('groups tables by db, all collapsed, defaults comment', async () => {
     const ctx = ctxWith(async () => jsonResp({
       data: [
         { database: 'a', name: 't1', total_rows: '1', total_bytes: '2', comment: 'c' },
@@ -139,7 +139,7 @@ describe('loadSchema', () => {
     }));
     const schema = await loadSchema(ctx);
     expect(schema).toHaveLength(2);
-    expect(schema[0]).toMatchObject({ db: 'a', expanded: true });
+    expect(schema[0]).toMatchObject({ db: 'a', expanded: false });
     expect(schema[1]).toMatchObject({ db: 'b', expanded: false });
     expect(schema[0].tables[0]).toEqual({ name: 't1', total_rows: '1', total_bytes: '2', comment: 'c', columns: null });
     expect(schema[0].tables[1].comment).toBe('');
