@@ -1,0 +1,20 @@
+{
+  "name": "altinity-sql-browser",
+  "private": true,
+  "version": "0.1.0",
+  "description": "A zero-dependency, OAuth-gated SQL browser for any ClickHouse cluster. Vanilla ES modules, served from ClickHouse itself.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "scripts": {
+    "build": "node build/build.mjs",
+    "test": "vitest run --coverage",
+    "test:watch": "vitest",
+    "dev": "node build/build.mjs && python3 -m http.server -d dist 8900"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^2.1.8",
+    "esbuild": "^0.21.5",
+    "happy-dom": "^15.11.0",
+    "vitest": "^2.1.8"
+  }
+}

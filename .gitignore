@@ -1,0 +1,19 @@
+# Build output
+/dist/
+
+# Test / coverage
+/coverage/
+
+# Dependencies (reuse a sibling install or `npm ci`)
+/node_modules/
+
+# Rendered, secret-bearing config — only the *.tmpl is committed
+/deploy/config.json
+/deploy/client.json
+
+# Reference material (the verbatim deployed SPA, kept locally for diffing)
+/reference/
+
+# OS / editor
+.DS_Store
+*.log

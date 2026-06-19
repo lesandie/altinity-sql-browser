@@ -1,0 +1,96 @@
+// The schema tree: databases → tables → columns, with a text filter and
+// lazy per-table column loading. Renders into app.dom.schemaList.
+
+import { h } from './dom.js';
+import { Icon } from './icons.js';
+import { formatRows } from '../core/format.js';
+
+export function renderSchema(app) {
+  const list = app.dom.schemaList;
+  if (!list) return;
+  list.replaceChildren();
+  const state = app.state;
+
+  if (state.schemaError) {
+    list.appendChild(h('div', { class: 'schema-empty', style: { color: 'var(--error-fg)' } },
+      'Schema load failed: ' + state.schemaError));
+    return;
+  }
+  if (!state.schema) {
+    list.appendChild(h('div', { class: 'schema-empty' }, 'Loading schema…'));
+    return;
+  }
+  if (state.schema.length === 0) {
+    list.appendChild(h('div', { class: 'schema-empty' }, 'No databases.'));
+    return;
+  }
+
+  const filter = state.schemaFilter.trim().toLowerCase();
+  const matches = (s) => !filter || s.toLowerCase().includes(filter);
+
+  for (const db of state.schema) {
+    list.appendChild(h('div', {
+      class: 'tree-row bold',
+      onclick: () => { db.expanded = !db.expanded; renderSchema(app); },
+    },
+      h('span', { class: 'chev' }, db.expanded ? Icon.chevDown() : Icon.chev()),
+      h('span', { class: 'icon' }, Icon.database()),
+      h('span', { class: 'label' }, db.db),
+      h('span', { class: 'meta' }, String(db.tables.length)),
+    ));
+    if (!db.expanded) continue;
+
+    for (const tb of db.tables) {
+      const tableMatch = matches(tb.name);
+      const colsHave = Array.isArray(tb.columns) ? tb.columns : [];
+      const visibleCols = filter ? colsHave.filter((c) => matches(c.name)) : colsHave;
+      if (filter && !tableMatch && visibleCols.length === 0 && tb.columns !== 'loading') continue;
+      const key = db.db + '.' + tb.name;
+      const isOpen = state.expandedTables.has(key);
+      const tbComment = (tb.comment || '').trim();
+      const title = tbComment
+        ? tbComment + ' · ' + formatRows(tb.total_rows) + ' rows'
+        : 'Click to expand/collapse · double-click to insert';
+
+      list.appendChild(h('div', {
+        class: 'tree-row' + (filter && tableMatch ? ' match' : ''),
+        style: { paddingLeft: '24px' },
+        title,
+        onclick: () => {
+          if (state.expandedTables.has(key)) state.expandedTables.delete(key);
+          else state.expandedTables.add(key);
+          if (state.expandedTables.has(key) && tb.columns == null) app.actions.loadColumns(db.db, tb.name, tb);
+          else renderSchema(app);
+        },
+        ondblclick: (e) => { e.stopPropagation(); app.actions.insertAtCursor(db.db + '.' + tb.name); },
+      },
+        h('span', { class: 'chev' }, isOpen ? Icon.chevDown() : Icon.chev()),
+        h('span', { class: 'icon', style: { color: 'var(--accent)' } }, Icon.table()),
+        h('span', { class: 'label' }, tb.name),
+        h('span', { class: 'meta' }, formatRows(tb.total_rows)),
+      ));
+
+      if (!isOpen && !(filter && visibleCols.length > 0)) continue;
+      if (tb.columns === 'loading') {
+        list.appendChild(h('div', {
+          class: 'tree-row small',
+          style: { paddingLeft: '38px', color: 'var(--fg-faint)', fontStyle: 'italic' },
+        }, 'loading columns…'));
+        continue;
+      }
+      for (const c of visibleCols) {
+        list.appendChild(h('div', {
+          class: 'tree-row small mono' + (filter && matches(c.name) ? ' match' : ''),
+          style: { paddingLeft: '38px' },
+          title: (c.comment && c.comment.trim()) || 'Click to insert ' + c.name,
+          onclick: (e) => { e.stopPropagation(); app.actions.insertAtCursor(c.name); },
+        },
+          h('span', { class: 'chev' }),
+          h('span', { class: 'icon', style: { color: 'var(--fg-faint)' } }, Icon.col()),
+          h('span', { class: 'label' }, c.name),
+          h('span', { class: 'meta' }, c.type),
+        ));
+      }
+    }
+  }
+}

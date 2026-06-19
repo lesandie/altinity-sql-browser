@@ -1,0 +1,57 @@
+# Deployment
+
+The app is three things on the target ClickHouse:
+1. `user_files/sql.html` — the SPA, served at `/sql`
+2. `user_files/sql-config.json` — OAuth config, served at `/sql/config.json`
+3. an `<http_handlers>` config fragment wiring those routes
+
+`deploy/install.sh` does 1 + 2; you wire 3 once.
+
+## 1–2. Upload assets
+
+```bash
+CLICKHOUSE_PASSWORD=… ./deploy/install.sh \
+  --ch-host clickhouse.example.com --ch-user admin \
+  --client-id <oauth-client-id> [--issuer …] [--audience …] [--cluster …] [--secure]
+```
+
+For a multi-replica cluster pass `--cluster <name>`; the installer fans the
+bytes to every replica via `clusterAllReplicas`. The password is read from the
+env var or prompted — never placed on the command line.
+
+## 3. HTTP routes
+
+Add `deploy/http_handlers.xml` to ClickHouse `config.d/` (or push it through
+your control plane as `config.d/sql-browser.xml`) and reload. It adds static
+rules for `/sql` and `/sql/config.json` and keeps `<defaults/>` so the dynamic
+query handler at `/` still works.
+
+## 4. Make ClickHouse accept the JWT
+
+The SPA sends `Authorization: Bearer <id_token>` on every query. ClickHouse must
+validate it. Two supported shapes:
+
+- **Native token processor** (ClickHouse with JWT auth): add a
+  `<token_processors>` entry pointing at your IdP's JWKS with `username_claim`,
+  and a `<token>` user-directory so users are created on first query.
+- **Delegated verifier**: run a small JWT-verifier service referenced from
+  `<http_authentication_servers>` and define users `IDENTIFIED WITH http SERVER
+  … SCHEME 'BASIC'`. In this shape the bearer is wrapped as Basic by an upstream
+  layer.
+
+Either way, the app itself is unchanged — it only sends the bearer.
+
+## 5. OAuth IdP
+
+Register the redirect URI `https://<ch-host>/sql` with your IdP and put the
+`issuer` + `client_id` in `config.json` (the installer does this from
+`--issuer`/`--client-id`). Whether `config.json` also needs a `client_secret`
+depends on the IdP and client type — see the "Configuring OAuth" section in the
+README for the trade-offs between a PKCE public client, a secret-bearing web
+client, and a server-side broker.
+
+## Verify
+
+Open `https://<ch-host>/sql`, sign in, and run `SELECT currentUser()`. It should
+return your authenticated identity (not a static user). Schema appears in the
+left tree; results stream into the table view.

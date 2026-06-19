@@ -1,0 +1,172 @@
+import { describe, it, expect } from 'vitest';
+import { renderResults, renderJson, renderTable, renderChart } from '../../src/ui/results.js';
+import { makeApp } from '../helpers/fake-app.js';
+import { newResult } from '../../src/core/stream.js';
+
+const click = (el) => el.dispatchEvent(new Event('click', { bubbles: true }));
+
+function appWithResult(result, over = {}) {
+  const app = makeApp();
+  app.activeTab().result = result;
+  Object.assign(app.state, over);
+  return app;
+}
+
+function tableResult() {
+  const r = newResult('Table');
+  r.columns = [{ name: 'n', type: 'UInt64' }, { name: 's', type: 'String' }];
+  r.rows = [['2', 'b'], ['1', null]];
+  r.progress = { rows: 2, bytes: 100, elapsed_ns: 5e6 };
+  return r;
+}
+
+describe('renderResults states', () => {
+  it('no-ops without a region', () => {
+    const app = makeApp();
+    app.dom.resultsRegion = null;
+    expect(() => renderResults(app)).not.toThrow();
+  });
+  it('empty prompt when no result', () => {
+    const app = appWithResult(null);
+    renderResults(app);
+    expect(app.dom.resultsRegion.textContent).toContain('to run query');
+  });
+  it('streaming-blank with a partial result shows progress', () => {
+    const r = newResult('Table');
+    r.pct = 40;
+    r.progress = { rows: 10, bytes: 50, elapsed_ns: 0 };
+    const app = appWithResult(r, { running: true });
+    renderResults(app);
+    expect(app.dom.resultsRegion.querySelector('.progress-bar')).not.toBeNull();
+    expect(app.dom.resultsRegion.textContent).toContain('Streaming results…');
+  });
+  it('streaming-blank with no result object', () => {
+    const app = appWithResult(null, { running: true });
+    renderResults(app);
+    expect(app.dom.resultsRegion.querySelector('.progress-bar')).not.toBeNull();
+  });
+  it('renders an error', () => {
+    const r = newResult('Table');
+    r.error = 'DB::Exception: boom';
+    renderResults(appWithResult(r));
+    // toolbar present + error body
+    const app = appWithResult(r);
+    renderResults(app);
+    expect(app.dom.resultsRegion.querySelector('.results-error').textContent).toContain('boom');
+  });
+  it('renders raw text + a single raw view tab', () => {
+    const r = newResult('TSV');
+    r.rawText = 'a\tb\n1\t2';
+    const app = appWithResult(r);
+    renderResults(app);
+    expect(app.dom.resultsRegion.querySelector('.raw-text-view').textContent).toContain('a\tb');
+    expect(app.dom.resultsRegion.querySelectorAll('.result-view-tab')).toHaveLength(1);
+  });
+  it('raw JSON view uses the json icon label', () => {
+    const r = newResult('JSON');
+    r.rawText = '{"x":1}';
+    const app = appWithResult(r);
+    renderResults(app);
+    expect(app.dom.resultsRegion.querySelector('.result-view-tab').textContent).toContain('JSON');
+  });
+  it('reports 0 rows', () => {
+    const r = newResult('Table');
+    renderResults(appWithResult(r));
+    const app = appWithResult(r);
+    renderResults(app);
+    expect(app.dom.resultsRegion.textContent).toContain('Query returned 0 rows.');
+  });
+  it('table view (default) renders rows + progress bar while running', () => {
+    const app = appWithResult(tableResult(), { running: true, resultView: 'table' });
+    renderResults(app);
+    expect(app.dom.resultsRegion.querySelectorAll('.res-table tbody tr')).toHaveLength(2);
+    expect(app.dom.resultsRegion.querySelector('.progress-bar')).not.toBeNull();
+  });
+  it('json view', () => {
+    const app = appWithResult(tableResult(), { resultView: 'json' });
+    renderResults(app);
+    expect(app.dom.resultsRegion.querySelector('.json-view').textContent).toContain('"n": "2"');
+  });
+  it('chart view', () => {
+    const app = appWithResult(tableResult(), { resultView: 'chart' });
+    renderResults(app);
+    expect(app.dom.resultsRegion.querySelector('.chart-view')).not.toBeNull();
+  });
+  it('clicking a view tab switches the view', () => {
+    const app = appWithResult(tableResult(), { resultView: 'table' });
+    renderResults(app);
+    const jsonTab = [...app.dom.resultsRegion.querySelectorAll('.result-view-tab')].find((b) => b.textContent.includes('JSON'));
+    click(jsonTab);
+    expect(app.state.resultView).toBe('json');
+  });
+});
+
+describe('renderTable', () => {
+  it('sorts ascending then toggles to descending via header click', () => {
+    const app = appWithResult(tableResult());
+    renderResults(app);
+    const th = app.dom.resultsRegion.querySelectorAll('.res-table th')[1]; // column 'n'
+    click(th);
+    expect(app.state.resultSort).toEqual({ col: 0, dir: 'asc' });
+    const th2 = app.dom.resultsRegion.querySelectorAll('.res-table th')[1];
+    click(th2);
+    expect(app.state.resultSort.dir).toBe('desc');
+    const th3 = app.dom.resultsRegion.querySelectorAll('.res-table th')[1];
+    click(th3); // desc → asc
+    expect(app.state.resultSort.dir).toBe('asc');
+  });
+  it('renders the active sort indicator and numeric cell class', () => {
+    const app = appWithResult(tableResult(), { resultSort: { col: 0, dir: 'asc' } });
+    const el = renderTable(app, app.activeTab().result);
+    expect(el.querySelector('.h-sort')).not.toBeNull();
+    expect(el.querySelector('td.num')).not.toBeNull();
+  });
+  it('truncates very large result sets', () => {
+    const r = newResult('Table');
+    r.columns = [{ name: 'n', type: 'UInt64' }];
+    r.rows = Array.from({ length: 5001 }, (_, i) => [String(i)]);
+    const el = renderTable(makeApp(), r);
+    expect(el.textContent).toContain('more rows truncated');
+  });
+});
+
+describe('renderJson', () => {
+  it('builds an array of row objects capped at the cap', () => {
+    const r = tableResult();
+    const el = renderJson(r);
+    const parsed = JSON.parse(el.textContent);
+    expect(parsed[0]).toEqual({ n: '2', s: 'b' });
+  });
+});
+
+describe('renderChart', () => {
+  it('says so when no numeric column exists', () => {
+    const r = newResult('Table');
+    r.columns = [{ name: 'a', type: 'String' }];
+    r.rows = [['x']];
+    expect(renderChart(r).textContent).toContain('No numeric columns to chart.');
+  });
+  it('draws bars for numeric data', () => {
+    const r = tableResult();
+    const el = renderChart(r);
+    expect(el.querySelectorAll('rect').length).toBeGreaterThan(0);
+    expect(el.querySelector('.chart-controls').textContent).toContain('X:');
+  });
+  it('handles an all-zero series (max 0)', () => {
+    const r = newResult('Table');
+    r.columns = [{ name: 'k', type: 'String' }, { name: 'v', type: 'UInt64' }];
+    r.rows = [['a', '0'], ['b', '0']];
+    const el = renderChart(r);
+    expect(el.querySelectorAll('rect')).toHaveLength(2);
+  });
+  it('samples + truncates long x labels for wide series', () => {
+    const r = newResult('Table');
+    r.columns = [{ name: 'k', type: 'String' }, { name: 'v', type: 'UInt64' }];
+    r.rows = Array.from({ length: 30 }, (_, i) => ['a_very_long_label_' + i, String(i)]);
+    const el = renderChart(r);
+    // fewer text labels than rows (sampled every Nth) — y-axis adds 2 texts
+    expect(el.querySelectorAll('text').length).toBeLessThan(30);
+    // long labels are truncated with an ellipsis
+    expect([...el.querySelectorAll('text')].some((t) => t.textContent.endsWith('…'))).toBe(true);
+  });
+});

@@ -1,0 +1,128 @@
+import { describe, it, expect } from 'vitest';
+import { renderSchema } from '../../src/ui/schema.js';
+import { makeApp } from '../helpers/fake-app.js';
+
+const rows = (app) => [...app.dom.schemaList.querySelectorAll('.tree-row')];
+const click = (el) => el.dispatchEvent(new Event('click', { bubbles: true }));
+
+function withSchema() {
+  const app = makeApp();
+  app.state.schema = [
+    {
+      db: 'db1',
+      expanded: true,
+      tables: [
+        { name: 'orders', total_rows: '1000', total_bytes: '2000', comment: 'the orders', columns: null },
+        { name: 'events', total_rows: '5', total_bytes: '9', comment: '', columns: null },
+      ],
+    },
+    { db: 'db2', expanded: false, tables: [{ name: 't', total_rows: '1', total_bytes: '1', comment: '', columns: null }] },
+  ];
+  return app;
+}
+
+describe('renderSchema states', () => {
+  it('no-ops without a list mount', () => {
+    const app = makeApp();
+    app.dom.schemaList = null;
+    expect(() => renderSchema(app)).not.toThrow();
+  });
+  it('shows the schema error', () => {
+    const app = makeApp();
+    app.state.schemaError = 'bad';
+    renderSchema(app);
+    expect(app.dom.schemaList.textContent).toContain('Schema load failed: bad');
+  });
+  it('shows a loading state when schema is null', () => {
+    const app = makeApp();
+    renderSchema(app);
+    expect(app.dom.schemaList.textContent).toContain('Loading schema…');
+  });
+  it('shows "No databases." for an empty schema', () => {
+    const app = makeApp();
+    app.state.schema = [];
+    renderSchema(app);
+    expect(app.dom.schemaList.textContent).toContain('No databases.');
+  });
+});
+
+describe('renderSchema tree', () => {
+  it('renders dbs (expanded shows tables; collapsed hides them)', () => {
+    const app = withSchema();
+    renderSchema(app);
+    const labels = rows(app).map((r) => r.querySelector('.label').textContent);
+    expect(labels).toContain('db1');
+    expect(labels).toContain('orders');
+    expect(labels).toContain('db2');
+    expect(labels).not.toContain('t'); // db2 collapsed
+  });
+  it('clicking a db toggles expansion', () => {
+    const app = withSchema();
+    renderSchema(app);
+    const db2Row = rows(app).find((r) => r.querySelector('.label').textContent === 'db2');
+    click(db2Row);
+    expect(app.state.schema[1].expanded).toBe(true);
+  });
+  it('expanding a table with no columns triggers loadColumns', () => {
+    const app = withSchema();
+    renderSchema(app);
+    const ordersRow = rows(app).find((r) => r.querySelector('.label').textContent === 'orders');
+    click(ordersRow);
+    expect(app.state.expandedTables.has('db1.orders')).toBe(true);
+    expect(app.actions.loadColumns).toHaveBeenCalledWith('db1', 'orders', expect.any(Object));
+  });
+  it('collapsing an already-loaded table just re-renders', () => {
+    const app = withSchema();
+    app.state.schema[0].tables[0].columns = [{ name: 'id', type: 'UInt64', comment: '' }];
+    app.state.expandedTables.add('db1.orders');
+    renderSchema(app);
+    const ordersRow = rows(app).find((r) => r.querySelector('.label').textContent === 'orders');
+    click(ordersRow); // collapse
+    expect(app.state.expandedTables.has('db1.orders')).toBe(false);
+  });
+  it('double-clicking a table inserts its qualified name', () => {
+    const app = withSchema();
+    renderSchema(app);
+    const ordersRow = rows(app).find((r) => r.querySelector('.label').textContent === 'orders');
+    ordersRow.dispatchEvent(new Event('dblclick', { bubbles: true }));
+    expect(app.actions.insertAtCursor).toHaveBeenCalledWith('db1.orders');
+  });
+  it('shows a loading row while columns load', () => {
+    const app = withSchema();
+    app.state.schema[0].tables[0].columns = 'loading';
+    app.state.expandedTables.add('db1.orders');
+    renderSchema(app);
+    expect(app.dom.schemaList.textContent).toContain('loading columns…');
+  });
+  it('renders columns (with + without comment) and inserts on click', () => {
+    const app = withSchema();
+    app.state.schema[0].tables[0].columns = [
+      { name: 'id', type: 'UInt64', comment: 'pk' },
+      { name: 'ts', type: 'DateTime', comment: '' },
+    ];
+    app.state.expandedTables.add('db1.orders');
+    renderSchema(app);
+    const colRow = [...app.dom.schemaList.querySelectorAll('.tree-row.small')]
+      .find((r) => r.querySelector('.label').textContent === 'id');
+    click(colRow);
+    expect(app.actions.insertAtCursor).toHaveBeenCalledWith('id');
+  });
+});
+
+describe('renderSchema filter', () => {
+  it('keeps matching tables and drops non-matching ones', () => {
+    const app = withSchema();
+    app.state.schemaFilter = 'order';
+    renderSchema(app);
+    const labels = rows(app).map((r) => r.querySelector('.label').textContent);
+    expect(labels).toContain('orders');
+    expect(labels).not.toContain('events');
+  });
+  it('reveals a table when one of its columns matches the filter', () => {
+    const app = withSchema();
+    app.state.schema[0].tables[1].columns = [{ name: 'user_id', type: 'UInt64', comment: '' }];
+    app.state.schemaFilter = 'user_id';
+    renderSchema(app);
+    expect(app.dom.schemaList.textContent).toContain('user_id');
+  });
+});

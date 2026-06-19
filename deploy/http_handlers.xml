@@ -1,0 +1,54 @@
+<?xml version="1.0"?>
+<!--
+  ClickHouse HTTP handlers that serve the Altinity SQL Browser from this
+  cluster. Drop into the server's config.d/ (or push as an ACM cluster
+  setting named "config.d/sql-browser.xml"), then reload/restart.
+
+  Routes:
+    GET /sql              -> the SPA (dist/sql.html in user_files)
+    GET /sql/config.json  -> the OAuth config (issuer + client_id [+ audience])
+
+  The SPA POSTs queries to "/" with `Authorization: Bearer <id_token>`; that is
+  handled by ClickHouse's built-in dynamic query handler (the <defaults/> rule),
+  so no extra route is needed for query execution. ClickHouse must be configured
+  to accept the JWT (token_processor / JWKS, or a delegated http_authentication
+  verifier) — see README "Installing on any ClickHouse cluster".
+
+  Each <rule> carries a unique <name> to dodge the ClickHouse config.d merge
+  bug (#70636) where unnamed sibling rules overwrite each other.
+-->
+<clickhouse>
+  <http_handlers>
+    <rule>
+      <name>sql_browser_spa</name>
+      <url>regex:^/sql/?$</url>
+      <methods>GET</methods>
+      <handler>
+        <type>static</type>
+        <content_type>text/html; charset=UTF-8</content_type>
+        <http_response_headers>
+          <Cache-Control>no-store</Cache-Control>
+        </http_response_headers>
+        <response_content>file://sql.html</response_content>
+      </handler>
+    </rule>
+
+    <rule>
+      <name>sql_browser_config</name>
+      <url>regex:^/sql/config\.json$</url>
+      <methods>GET</methods>
+      <handler>
+        <type>static</type>
+        <content_type>application/json; charset=UTF-8</content_type>
+        <http_response_headers>
+          <Cache-Control>no-store</Cache-Control>
+        </http_response_headers>
+        <response_content>file://sql-config.json</response_content>
+      </handler>
+    </rule>
+
+    <!-- Keep ClickHouse's built-in handlers (incl. the dynamic query handler
+         the SPA POSTs to at "/") after the custom static aliases. -->
+    <defaults/>
+  </http_handlers>
+</clickhouse>
