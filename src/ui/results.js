@@ -33,7 +33,7 @@ export function renderResults(app) {
   } else if (r.error) {
     inner.appendChild(h('div', { class: 'results-error' }, r.error));
   } else if (r.rawText != null) {
-    inner.appendChild(h('div', { class: 'raw-text-view' }, r.rawText));
+    inner.appendChild(h('div', { class: 'raw-text-view', tabindex: '0' }, r.rawText));
   } else if (r.rows.length === 0) {
     inner.appendChild(h('div', { class: 'placeholder' }, h('div', null, 'Query returned 0 rows.')));
   } else if (app.state.resultView === 'json') {
@@ -87,7 +87,7 @@ export function renderJson(r) {
     r.columns.forEach((c, i) => { o[c.name] = row[i]; });
     return o;
   });
-  return h('div', { class: 'json-view' }, JSON.stringify(arr, null, 2));
+  return h('div', { class: 'json-view', tabindex: '0' }, JSON.stringify(arr, null, 2));
 }
 
 export function renderTable(app, r) {
