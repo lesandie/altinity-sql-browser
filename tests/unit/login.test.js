@@ -48,4 +48,33 @@ describe('renderLogin', () => {
     await tick();
     expect(showLogin).toHaveBeenCalledWith('rawstr');
   });
+
+  it('multiple IdPs → one button per provider, clicking passes the IdP id', async () => {
+    const login = vi.fn(async () => {});
+    const app = makeApp({
+      actions: { ...makeApp().actions, login },
+      loadIdps: async () => ({ idps: [{ id: 'g', label: 'Google' }, { id: 'a', label: 'Acme SSO' }] }),
+    });
+    renderLogin(app);
+    await tick();
+    const btns = [...app.root.querySelectorAll('.login-btn')];
+    expect(btns.map((b) => b.textContent)).toEqual(['Sign in with Google', 'Sign in with Acme SSO']);
+    btns[1].dispatchEvent(new Event('click'));
+    await tick();
+    expect(login).toHaveBeenCalledWith('a');
+  });
+  it('a single IdP keeps the lone Sign in button', async () => {
+    const app = makeApp({ loadIdps: async () => ({ idps: [{ id: 'g', label: 'Google' }] }) });
+    renderLogin(app);
+    await tick();
+    const btns = [...app.root.querySelectorAll('.login-btn')];
+    expect(btns).toHaveLength(1);
+    expect(btns[0].textContent).toBe('Sign in');
+  });
+  it('keeps the single button when the IdP list fails to load', async () => {
+    const app = makeApp({ loadIdps: async () => { throw new Error('no config'); } });
+    renderLogin(app);
+    await tick();
+    expect(app.root.querySelectorAll('.login-btn')).toHaveLength(1);
+  });
 });

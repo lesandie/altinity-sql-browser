@@ -88,6 +88,25 @@ on your IdP and threat model. Common, all valid, variants:
 The code treats `client_secret` as optional, so any of these is a config-only
 choice.
 
+#### Multiple IdPs
+
+`config.json` may instead list several providers, and the login screen shows one
+button per IdP ("Sign in with …"):
+
+```json
+{ "idps": [
+    { "id": "google", "label": "Google",   "issuer": "https://accounts.google.com", "client_id": "…" },
+    { "id": "acme",   "label": "Acme SSO", "issuer": "https://acme.auth0.com",      "client_id": "…", "client_secret": "…" }
+  ] }
+```
+
+Each entry takes the same fields as the single-IdP form (`issuer`, `client_id`,
+optional `client_secret`/`audience`/`bearer`/`ch_auth`/`authorize_params`) plus an
+optional `id`/`label` (default: the issuer host). A bare single object (above) is
+still accepted — it's treated as a one-IdP list. ClickHouse needs a matching
+`<token_processor>` per issuer; it validates each inbound JWT against whichever
+one matches the token's `iss`, so no extra CH wiring is required to offer several.
+
 ### Security headers
 
 `deploy/http_handlers.xml` sends a strict **Content-Security-Policy** plus

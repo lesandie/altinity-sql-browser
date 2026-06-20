@@ -45,7 +45,22 @@ export function createApp(env = {}) {
     refreshToken: ss.getItem('oauth_refresh_token'),
   };
 
-  const loadConfig = oauthCfg.memoizeConfig(() => oauthCfg.loadOAuthConfig(fetchFn, loc.pathname));
+  // config.json may list several IdPs. Fetch the doc once; resolve OIDC
+  // discovery per selected IdP. The chosen IdP id is persisted so it survives
+  // the OAuth redirect (like oauth_state) and drives token exchange/refresh.
+  const loadDoc = oauthCfg.memoizeConfig(() => oauthCfg.loadConfigDoc(fetchFn, loc.pathname));
+  const resolvedCache = new Map();
+  app.idpId = ss.getItem('oauth_idp') || null;
+  function selectIdp(id) { app.idpId = id; ss.setItem('oauth_idp', id); }
+  async function resolveConfig() {
+    const { idps } = await loadDoc();
+    const chosen = idps.find((i) => i.id === app.idpId) || idps[0];
+    app.idpId = chosen.id;
+    if (!resolvedCache.has(chosen.id)) resolvedCache.set(chosen.id, oauthCfg.resolveIdp(fetchFn, chosen));
+    return resolvedCache.get(chosen.id);
+  }
+  app.loadIdps = loadDoc;
+  app.selectIdp = selectIdp;
 
   // --- persistence -------------------------------------------------------
   app.saveJSON = saveJSON;
@@ -75,18 +90,20 @@ export function createApp(env = {}) {
   function clearTokens() {
     app.token = null;
     app.refreshToken = null;
-    ['oauth_id_token', 'oauth_refresh_token', 'oauth_verifier', 'oauth_state'].forEach((k) => ss.removeItem(k));
+    app.idpId = null;
+    ['oauth_id_token', 'oauth_refresh_token', 'oauth_verifier', 'oauth_state', 'oauth_idp'].forEach((k) => ss.removeItem(k));
   }
   app.setTokens = setTokens;
   app.clearTokens = clearTokens;
-  app.loadConfig = loadConfig;
+  app.loadConfig = resolveConfig;
 
   app.signOut = () => { clearTokens(); renderLogin(app); };
   app.showLogin = (msg) => renderLogin(app, msg);
 
   // --- OAuth -------------------------------------------------------------
-  async function login() {
-    const cfg = await loadConfig();
+  async function login(idpId) {
+    if (idpId) selectIdp(idpId);
+    const cfg = await resolveConfig();
     const { verifier, challenge } = await generatePKCE(cryptoObj);
     const state = randomState(cryptoObj);
     ss.setItem('oauth_verifier', verifier);
@@ -99,7 +116,7 @@ export function createApp(env = {}) {
   }
 
   async function refresh() {
-    const cfg = await loadConfig();
+    const cfg = await resolveConfig();
     const tokens = await oauth.refreshTokens(fetchFn, cfg, app.refreshToken);
     const bearer = oauth.bearerFromTokens(tokens, cfg.bearer);
     if (!bearer) return false;
@@ -141,7 +158,7 @@ export function createApp(env = {}) {
   // rather than blocking the query.
   async function ensureConfig() {
     try {
-      const cfg = await loadConfig();
+      const cfg = await resolveConfig();
       app.chAuth = cfg.chAuth;
       return cfg;
     } catch {
@@ -348,7 +365,7 @@ export function createApp(env = {}) {
     selectTab: (id) => selectTab(app, id),
     closeTab: (id) => closeTab(app, id),
     loadIntoNewTab: (name, sql) => loadIntoNewTab(app, name, sql),
-    login,
+    login: (idpId) => login(idpId),
     share,
     toggleSaved: toggleSavedActive,
     formatQuery,

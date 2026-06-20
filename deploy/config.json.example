@@ -1,5 +1,10 @@
 {
-  "issuer": "https://accounts.google.com",
-  "client_id": "REPLACE_WITH_OAUTH_CLIENT_ID",
-  "audience": ""
+  "idps": [
+    {
+      "id": "google",
+      "label": "Google",
+      "issuer": "https://accounts.google.com",
+      "client_id": "REPLACE_WITH_OAUTH_CLIENT_ID"
+    }
+  ]
 }

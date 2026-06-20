@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { loadOAuthConfig, memoizeConfig } from '../../src/net/oauth-config.js';
+import { loadConfigDoc, resolveIdp, memoizeConfig } from '../../src/net/oauth-config.js';
 
 const resp = (ok, body, status = ok ? 200 : 500) => ({
   ok,
@@ -14,94 +14,95 @@ function fetcher(map) {
   });
 }
 
-const okConfig = { issuer: 'https://accounts.google.com', client_id: 'cid', client_secret: 'sek', audience: 'aud' };
 const okDisc = {
   authorization_endpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
   token_endpoint: 'https://oauth2.googleapis.com/token',
 };
 
-describe('loadOAuthConfig', () => {
-  it('resolves config + discovery', async () => {
-    const f = fetcher([
-      [/config\.json$/, resp(true, okConfig)],
-      [/openid-configuration$/, resp(true, okDisc)],
-    ]);
-    const cfg = await loadOAuthConfig(f, '/sql');
-    expect(cfg).toEqual({
-      issuer: 'https://accounts.google.com',
-      clientId: 'cid',
-      clientSecret: 'sek',
-      audience: 'aud',
-      authUri: okDisc.authorization_endpoint,
-      tokenUri: okDisc.token_endpoint,
-      bearer: 'id_token',
-      chAuth: 'bearer',
-      authorizeParams: {},
-    });
+describe('loadConfigDoc', () => {
+  const docOf = async (body, base = '/sql') =>
+    (await loadConfigDoc(fetcher([[/config\.json$/, resp(true, body)]]), base)).idps;
+
+  it('wraps a single bare-object config into one IdP (host id/label defaults)', async () => {
+    const f = fetcher([[/config\.json$/, resp(true, {
+      issuer: 'https://accounts.google.com', client_id: 'cid', client_secret: 'sek', audience: 'aud',
+    })]]);
+    const { idps } = await loadConfigDoc(f, '/sql');
+    expect(idps).toEqual([{
+      id: 'accounts.google.com', label: 'accounts.google.com',
+      issuer: 'https://accounts.google.com', clientId: 'cid', clientSecret: 'sek',
+      audience: 'aud', bearer: 'id_token', chAuth: 'bearer', authorizeParams: {},
+    }]);
     expect(f.mock.calls[0][0]).toBe('/sql/config.json');
   });
-  it('defaults clientSecret/audience/bearer/authorizeParams', async () => {
-    const f = fetcher([
-      [/config\.json$/, resp(true, { issuer: 'https://i', client_id: 'c' })],
-      [/openid-configuration$/, resp(true, okDisc)],
+  it('parses a list and honours explicit id/label', async () => {
+    const idps = await docOf({ idps: [
+      { id: 'g', label: 'Google', issuer: 'https://accounts.google.com', client_id: 'c1' },
+      { id: 'a', label: 'Acme', issuer: 'https://acme.auth0.com', client_id: 'c2', bearer: 'access_token' },
+    ] });
+    expect(idps.map((i) => [i.id, i.label, i.bearer])).toEqual([
+      ['g', 'Google', 'id_token'], ['a', 'Acme', 'access_token'],
     ]);
-    const cfg = await loadOAuthConfig(f, '');
-    expect(cfg.clientSecret).toBe('');
-    expect(cfg.audience).toBe('');
-    expect(cfg.bearer).toBe('id_token');
-    expect(cfg.chAuth).toBe('bearer');
-    expect(cfg.authorizeParams).toEqual({});
   });
-  it('honours ch_auth=basic', async () => {
-    const f = fetcher([
-      [/config\.json$/, resp(true, { issuer: 'https://i', client_id: 'c', ch_auth: 'basic' })],
-      [/openid-configuration$/, resp(true, okDisc)],
-    ]);
-    const cfg = await loadOAuthConfig(f, '');
-    expect(cfg.chAuth).toBe('basic');
+  it('defaults id/label to the issuer host, and to the raw string for a non-URL issuer', async () => {
+    const idps = await docOf({ idps: [
+      { issuer: 'https://acme.auth0.com', client_id: 'c' },
+      { issuer: 'weird', client_id: 'c' },
+    ] });
+    expect(idps[0].id).toBe('acme.auth0.com');
+    expect(idps[1].id).toBe('weird'); // new URL('weird') throws → raw fallback
   });
-  it('honours bearer=access_token and authorize_params object', async () => {
-    const f = fetcher([
-      [/config\.json$/, resp(true, {
-        issuer: 'https://i', client_id: 'c', bearer: 'access_token',
-        authorize_params: { organization: 'org_x' },
-      })],
-      [/openid-configuration$/, resp(true, okDisc)],
-    ]);
-    const cfg = await loadOAuthConfig(f, '');
-    expect(cfg.bearer).toBe('access_token');
-    expect(cfg.authorizeParams).toEqual({ organization: 'org_x' });
+  it('defaults clientSecret/audience/bearer/chAuth/authorizeParams', async () => {
+    const [idp] = await docOf({ issuer: 'https://i', client_id: 'c' });
+    expect(idp.clientSecret).toBe('');
+    expect(idp.audience).toBe('');
+    expect(idp.bearer).toBe('id_token');
+    expect(idp.chAuth).toBe('bearer');
+    expect(idp.authorizeParams).toEqual({});
+  });
+  it('honours ch_auth=basic, bearer=access_token, and an authorize_params object', async () => {
+    const [idp] = await docOf({
+      issuer: 'https://i', client_id: 'c', ch_auth: 'basic', bearer: 'access_token',
+      authorize_params: { organization: 'org_x' },
+    });
+    expect(idp.chAuth).toBe('basic');
+    expect(idp.bearer).toBe('access_token');
+    expect(idp.authorizeParams).toEqual({ organization: 'org_x' });
   });
   it('ignores a non-object authorize_params and an unknown bearer', async () => {
-    const f = fetcher([
-      [/config\.json$/, resp(true, { issuer: 'https://i', client_id: 'c', bearer: 'weird', authorize_params: 'nope' })],
-      [/openid-configuration$/, resp(true, okDisc)],
-    ]);
-    const cfg = await loadOAuthConfig(f, '');
-    expect(cfg.bearer).toBe('id_token');
-    expect(cfg.authorizeParams).toEqual({});
+    const [idp] = await docOf({ issuer: 'https://i', client_id: 'c', bearer: 'weird', authorize_params: 'nope' });
+    expect(idp.bearer).toBe('id_token');
+    expect(idp.authorizeParams).toEqual({});
   });
   it('throws when config.json is not ok', async () => {
     const f = fetcher([[/config\.json$/, resp(false, null, 404)]]);
-    await expect(loadOAuthConfig(f, '/sql')).rejects.toThrow('config.json: 404');
+    await expect(loadConfigDoc(f, '/sql')).rejects.toThrow('config.json: 404');
   });
-  it('throws when config.json lacks issuer/client_id', async () => {
-    const f = fetcher([[/config\.json$/, resp(true, { issuer: 'x' })]]);
-    await expect(loadOAuthConfig(f, '/sql')).rejects.toThrow('missing issuer or client_id');
+  it('throws when an IdP lacks issuer/client_id', async () => {
+    await expect(docOf({ issuer: 'x' })).rejects.toThrow('missing issuer or client_id');
+  });
+  it('throws when the idps list is empty', async () => {
+    await expect(docOf({ idps: [] })).rejects.toThrow('no IdPs');
+  });
+});
+
+describe('resolveIdp', () => {
+  const idp = {
+    id: 'i', label: 'I', issuer: 'https://i', clientId: 'c', clientSecret: '',
+    audience: '', bearer: 'id_token', chAuth: 'bearer', authorizeParams: {},
+  };
+  it('adds authUri/tokenUri from OIDC discovery, preserving the descriptor', async () => {
+    const f = fetcher([[/openid-configuration$/, resp(true, okDisc)]]);
+    const cfg = await resolveIdp(f, idp);
+    expect(cfg).toEqual({ ...idp, authUri: okDisc.authorization_endpoint, tokenUri: okDisc.token_endpoint });
   });
   it('throws when discovery is not ok', async () => {
-    const f = fetcher([
-      [/config\.json$/, resp(true, okConfig)],
-      [/openid-configuration$/, resp(false, null, 500)],
-    ]);
-    await expect(loadOAuthConfig(f, '/sql')).rejects.toThrow('OIDC discovery failed: 500');
+    const f = fetcher([[/openid-configuration$/, resp(false, null, 500)]]);
+    await expect(resolveIdp(f, idp)).rejects.toThrow('OIDC discovery failed: 500');
   });
   it('throws when discovery lacks endpoints', async () => {
-    const f = fetcher([
-      [/config\.json$/, resp(true, okConfig)],
-      [/openid-configuration$/, resp(true, { authorization_endpoint: 'a' })],
-    ]);
-    await expect(loadOAuthConfig(f, '/sql')).rejects.toThrow('missing authorization_endpoint or token_endpoint');
+    const f = fetcher([[/openid-configuration$/, resp(true, { authorization_endpoint: 'a' })]]);
+    await expect(resolveIdp(f, idp)).rejects.toThrow('missing authorization_endpoint or token_endpoint');
   });
 });
 

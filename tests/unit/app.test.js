@@ -323,6 +323,29 @@ describe('auth flows', () => {
     expect(e.sessionStorage.getItem('oauth_verifier')).toBeTruthy();
     expect(e.sessionStorage.getItem('oauth_state')).toBeTruthy();
   });
+  it('multi-IdP: login(id) selects that IdP, persists it, and uses its endpoints', async () => {
+    const loc = { host: 'ch', origin: 'https://ch', pathname: '/sql', search: '', hash: '', href: 'https://ch/sql' };
+    const e = env({
+      location: loc,
+      sessionStorage: memSession({}),
+      fetch: makeFetch([
+        [(u) => /config\.json/.test(u), resp({ json: { idps: [
+          { id: 'google', issuer: 'https://accounts.google.com', client_id: 'g' },
+          { id: 'auth0', issuer: 'https://acme.auth0.com', client_id: 'a' },
+        ] } })],
+        [(u) => /acme\.auth0\.com\/.well-known/.test(u), resp({ json: { authorization_endpoint: 'https://acme.auth0.com/authorize', token_endpoint: 'https://acme.auth0.com/t' } })],
+        [(u) => /accounts\.google\.com\/.well-known/.test(u), resp({ json: { authorization_endpoint: 'https://accounts.google.com/auth', token_endpoint: 'https://t' } })],
+      ]),
+    });
+    const app = createApp(e);
+    expect((await app.loadIdps()).idps).toHaveLength(2);
+    await app.actions.login('auth0');
+    expect(loc.href).toContain('https://acme.auth0.com/authorize?');
+    expect(loc.href).toContain('client_id=a');
+    expect(e.sessionStorage.getItem('oauth_idp')).toBe('auth0');
+    app.signOut();
+    expect(e.sessionStorage.getItem('oauth_idp')).toBeNull(); // cleared on sign-out
+  });
   it('refresh succeeds via the ClickHouse context', async () => {
     const e = env({
       sessionStorage: memSession({ oauth_id_token: jwt({ exp: 1 }), oauth_refresh_token: 'rt' }),
