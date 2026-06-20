@@ -74,12 +74,12 @@ describe('renderSchema tree', () => {
     click(db2Row);
     expect(app.state.schema[1].expanded).toBe(true);
   });
-  it('shift-clicking a db inserts SHOW CREATE DATABASE without expanding', () => {
+  it('shift-clicking a db inserts its formatted DDL without expanding', () => {
     const app = withSchema();
     renderSchema(app);
     const db2Row = rows(app).find((r) => r.querySelector('.label').textContent === 'db2');
     shiftClick(db2Row);
-    expect(app.actions.insertTopLine).toHaveBeenCalledWith('SHOW CREATE DATABASE db2');
+    expect(app.actions.insertCreate).toHaveBeenCalledWith('DATABASE db2');
     expect(app.state.schema[1].expanded).toBe(false);
   });
   it('double-clicking a db inserts its name', () => {
@@ -113,12 +113,12 @@ describe('renderSchema tree', () => {
     dblclick(ordersRow);
     expect(app.actions.insertTopLine).toHaveBeenCalledWith('SELECT * FROM db1.orders LIMIT 100');
   });
-  it('shift-clicking a table inserts SHOW CREATE without expanding', () => {
+  it('shift-clicking a table inserts its formatted DDL without expanding', () => {
     const app = withSchema();
     renderSchema(app);
     const eventsRow = rows(app).find((r) => r.querySelector('.label').textContent === 'events');
     shiftClick(eventsRow);
-    expect(app.actions.insertTopLine).toHaveBeenCalledWith('SHOW CREATE db1.events');
+    expect(app.actions.insertCreate).toHaveBeenCalledWith('db1.events');
     expect(app.state.expandedTables.has('db1.events')).toBe(false);
     expect(app.actions.loadColumns).not.toHaveBeenCalled();
   });

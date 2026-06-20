@@ -42,7 +42,7 @@ export function renderSchema(app) {
       class: 'tree-row bold',
       title: 'Click to expand · double-click to insert · shift-click for SHOW CREATE',
       onclick: (e) => {
-        if (e.shiftKey) { app.actions.insertTopLine('SHOW CREATE DATABASE ' + db.db); return; }
+        if (e.shiftKey) { app.actions.insertCreate('DATABASE ' + db.db); return; }
         db.expanded = !db.expanded;
         renderSchema(app);
       },
@@ -74,7 +74,7 @@ export function renderSchema(app) {
         title,
         ...dragProps(key),
         onclick: (e) => {
-          if (e.shiftKey) { app.actions.insertTopLine('SHOW CREATE ' + key); return; }
+          if (e.shiftKey) { app.actions.insertCreate(key); return; }
           if (state.expandedTables.has(key)) state.expandedTables.delete(key);
           else state.expandedTables.add(key);
           if (state.expandedTables.has(key) && tb.columns == null) app.actions.loadColumns(db.db, tb.name, tb);

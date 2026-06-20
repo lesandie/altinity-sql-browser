@@ -279,6 +279,27 @@ export function createApp(env = {}) {
     }
   }
 
+  // Fetch the DDL for `target` (e.g. 'db.table' or 'DATABASE db') with
+  // SHOW CREATE, pretty-print it through formatQuery(), and drop it in as a top
+  // line. Two round-trips by design; if formatting fails the raw DDL is used.
+  async function insertCreate(target) {
+    await ensureConfig();
+    if (!(await getToken())) { chCtx.onSignedOut(); return; }
+    try {
+      const show = await ch.queryJson(chCtx, 'SHOW CREATE ' + target + ' FORMAT JSON');
+      const stmt = (show.data && show.data[0] && show.data[0].statement) || '';
+      if (!stmt) return;
+      let out = stmt;
+      try {
+        const fmt = await ch.queryJson(chCtx, 'SELECT formatQuery(' + sqlString(stmt) + ') AS q FORMAT JSON');
+        out = (fmt.data && fmt.data[0] && fmt.data[0].q) || stmt;
+      } catch { /* formatting is best-effort — fall back to the raw DDL */ }
+      insertTopLine(app, out);
+    } catch (e) {
+      flashToast('SHOW CREATE failed: ' + String((e && e.message) || e), { document: doc });
+    }
+  }
+
   // --- saved / history bridges ------------------------------------------
   app.recordHistory = (tab) => {
     recordHistory(app.state, tab, saveJSON);
@@ -331,6 +352,7 @@ export function createApp(env = {}) {
     share,
     toggleSaved: toggleSavedActive,
     formatQuery,
+    insertCreate,
     openShortcuts: () => openShortcuts(app),
     insertAtCursor: (text) => insertAtCursor(app, text),
     insertTopLine: (text) => insertTopLine(app, text),

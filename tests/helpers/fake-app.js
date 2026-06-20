@@ -40,6 +40,7 @@ export function makeApp(over = {}) {
       share: vi.fn(),
       toggleSaved: vi.fn(),
       formatQuery: vi.fn(),
+      insertCreate: vi.fn(),
       openShortcuts: vi.fn(),
       insertAtCursor: vi.fn(),
       insertTopLine: vi.fn(),
