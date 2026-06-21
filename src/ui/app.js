@@ -12,6 +12,7 @@ import {
 import { saveJSON, saveStr } from '../core/storage.js';
 import { decodeJwtPayload, isTokenExpired } from '../core/jwt.js';
 import { sqlString } from '../core/format.js';
+import { toTSV, toCSV } from '../core/export.js';
 import { newResult, applyStreamLine } from '../core/stream.js';
 import { encodeSqlForHash } from '../core/share.js';
 import { generatePKCE, randomState } from '../core/pkce.js';
@@ -347,6 +348,56 @@ export function createApp(env = {}) {
       flashToast('Link in URL — copy manually', { document: doc });
     }
   }
+  // --- copy / export results --------------------------------------------
+  // A result is exportable once it has raw text or at least one row.
+  function exportableResult() {
+    const r = app.activeTab().result;
+    return r && !r.error && (r.rawText != null || r.rows.length > 0) ? r : null;
+  }
+  function copyResult() {
+    const r = exportableResult();
+    if (!r) { flashToast('Nothing to copy', { document: doc }); return; }
+    const text = r.rawText != null ? r.rawText : toTSV(r.columns, r.rows);
+    const clip = (env.navigator || win.navigator || {}).clipboard;
+    if (clip && clip.writeText) {
+      clip.writeText(text)
+        .then(() => flashToast('Copied to clipboard', { document: doc }))
+        .catch(() => flashToast('Copy failed', { document: doc }));
+    } else {
+      flashToast('Copy not supported', { document: doc });
+    }
+  }
+  function exportResult() {
+    const r = exportableResult();
+    if (!r) { flashToast('Nothing to export', { document: doc }); return; }
+    let content, ext, mime;
+    if (r.rawText != null) {
+      content = r.rawText;
+      ext = r.rawFormat === 'JSON' ? 'json' : 'tsv';
+      mime = ext === 'json' ? 'application/json' : 'text/tab-separated-values';
+    } else {
+      content = toCSV(r.columns, r.rows);
+      ext = 'csv';
+      mime = 'text/csv';
+    }
+    const base = (app.activeTab().name || 'result').replace(/[^\w.-]+/g, '_').replace(/^_+|_+$/g, '') || 'result';
+    downloadFile(base + '.' + ext, mime, content);
+    flashToast('Exported ' + base + '.' + ext, { document: doc });
+  }
+  // Trigger a browser download. Injectable via env.download for tests.
+  function downloadFile(filename, mime, content) {
+    if (env.download) { env.download(filename, mime, content); return; }
+    const url = win.URL || win.webkitURL;
+    const href = url.createObjectURL(new win.Blob([content], { type: mime }));
+    const a = doc.createElement('a');
+    a.href = href;
+    a.download = filename;
+    doc.body.appendChild(a);
+    a.click();
+    doc.body.removeChild(a);
+    url.revokeObjectURL(href);
+  }
+
   app.updateStar = () => {
     if (!app.dom.starBtn) return;
     const saved = !!findSavedBySql(app.state, app.activeTab().sql || '');
@@ -376,6 +427,8 @@ export function createApp(env = {}) {
     loadIntoNewTab: (name, sql) => loadIntoNewTab(app, name, sql),
     login: (idpId) => login(idpId),
     share,
+    copyResult,
+    exportResult,
     toggleSaved: toggleSavedActive,
     formatQuery,
     insertCreate,

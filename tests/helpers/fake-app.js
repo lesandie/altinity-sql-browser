@@ -38,6 +38,8 @@ export function makeApp(over = {}) {
       loadIntoNewTab: vi.fn(),
       login: vi.fn(),
       share: vi.fn(),
+      copyResult: vi.fn(),
+      exportResult: vi.fn(),
       toggleSaved: vi.fn(),
       formatQuery: vi.fn(),
       insertCreate: vi.fn(),

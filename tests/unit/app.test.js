@@ -673,6 +673,69 @@ describe('exhaustive controller coverage', () => {
     expect(app.email()).toBe('BorisT');
   });
 
+  it('copyResult: TSV for structured, rawText as-is, nothing-to-copy when empty', async () => {
+    const writeText = vi.fn(async () => {});
+    const app = createApp(env({ window: fakeWin(), navigator: { clipboard: { writeText } } }));
+    app.renderApp();
+    app.activeTab().result = { error: null, rawText: null, columns: [{ name: 'a' }, { name: 'b' }], rows: [['1', 'x']] };
+    app.actions.copyResult();
+    await new Promise((r) => setTimeout(r));
+    expect(writeText).toHaveBeenCalledWith('a\tb\n1\tx');
+    expect(document.querySelector('.share-toast').textContent).toBe('Copied to clipboard');
+    app.activeTab().result = { rawText: 'raw\tdata', rows: [] };
+    app.actions.copyResult();
+    expect(writeText).toHaveBeenLastCalledWith('raw\tdata');
+    app.activeTab().result = null;
+    app.actions.copyResult();
+    expect(document.querySelector('.share-toast').textContent).toBe('Nothing to copy');
+  });
+  it('copyResult: no clipboard → not-supported; rejection → failed', async () => {
+    const app = createApp(env({ window: fakeWin(), navigator: {} }));
+    app.renderApp();
+    app.activeTab().result = { columns: [{ name: 'a' }], rows: [['1']] };
+    app.actions.copyResult();
+    expect(document.querySelector('.share-toast').textContent).toBe('Copy not supported');
+    const app2 = createApp(env({ window: fakeWin(), navigator: { clipboard: { writeText: vi.fn(async () => { throw new Error('x'); }) } } }));
+    app2.renderApp();
+    app2.activeTab().result = { columns: [{ name: 'a' }], rows: [['1']] };
+    app2.actions.copyResult();
+    await new Promise((r) => setTimeout(r));
+    expect(document.querySelector('.share-toast').textContent).toBe('Copy failed');
+  });
+  it('exportResult: CSV for structured (name sanitized), JSON for raw, nothing when empty', () => {
+    const download = vi.fn();
+    const app = createApp(env({ window: fakeWin(), download }));
+    app.renderApp();
+    app.activeTab().name = 'My Query!';
+    app.activeTab().result = { columns: [{ name: 'a' }, { name: 'b' }], rows: [['1', 'x']] };
+    app.actions.exportResult();
+    expect(download).toHaveBeenCalledWith('My_Query.csv', 'text/csv', 'a,b\n1,x');
+    app.activeTab().result = { rawText: '[{"a":1}]', rawFormat: 'JSON', rows: [] };
+    app.actions.exportResult();
+    expect(download).toHaveBeenLastCalledWith(expect.stringMatching(/\.json$/), 'application/json', '[{"a":1}]');
+    app.activeTab().result = null;
+    app.actions.exportResult();
+    expect(document.querySelector('.share-toast').textContent).toBe('Nothing to export');
+  });
+  it('exportResult: raw TSV + junk tab name falls back to result.tsv; native Blob path revokes the URL', () => {
+    const download = vi.fn();
+    const app = createApp(env({ window: fakeWin(), download }));
+    app.renderApp();
+    app.activeTab().name = '!!!';
+    app.activeTab().result = { rawText: 'a\tb', rawFormat: 'TSV', rows: [] };
+    app.actions.exportResult();
+    expect(download).toHaveBeenCalledWith('result.tsv', 'text/tab-separated-values', 'a\tb');
+    // native path (no env.download): exercises Blob + createObjectURL + revoke
+    const createObjectURL = vi.fn(() => 'blob:u');
+    const revokeObjectURL = vi.fn();
+    const app2 = createApp(env({ window: { ...fakeWin(), URL: { createObjectURL, revokeObjectURL }, Blob: class { constructor(p) { this.p = p; } } } }));
+    app2.renderApp();
+    app2.activeTab().result = { columns: [{ name: 'a' }], rows: [['1']] };
+    app2.actions.exportResult();
+    expect(createObjectURL).toHaveBeenCalled();
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:u');
+  });
+
   it('shows and dismisses the auth-failure banner', () => {
     const app = createApp(env());
     app.renderApp();

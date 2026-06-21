@@ -650,6 +650,14 @@ body {
   padding: 0 8px; border-right: 1px solid var(--border-faint);
 }
 .stat:last-of-type { border-right: none; }
+.res-act {
+  display: flex; align-items: center; gap: 5px;
+  height: 24px; padding: 0 9px;
+  border: 1px solid transparent; border-radius: 5px;
+  background: transparent; color: var(--fg-mute);
+  font-size: 11px; font-family: inherit; cursor: pointer;
+}
+.res-act:hover { background: var(--bg-hover); color: var(--fg); border-color: var(--border); }
 .stat .ic { color: var(--fg-faint); display: flex; }
 .stat .v { color: var(--fg); }
 

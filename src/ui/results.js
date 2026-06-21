@@ -135,6 +135,16 @@ function buildToolbar(app, r) {
       h('span', { class: 'v' }, (r.rawText != null ? '—' : r.rows.length) + ' rows')));
     toolbar.appendChild(h('div', { class: 'stat', title: r.progress.rows + ' rows scanned' },
       h('span', { class: 'ic' }, Icon.bytes()), h('span', { class: 'v' }, formatBytes(r.progress.bytes))));
+    if (!r.error) {
+      toolbar.appendChild(h('button', {
+        class: 'res-act', title: 'Copy results to clipboard',
+        onclick: () => app.actions.copyResult(),
+      }, Icon.copy(), h('span', null, 'Copy')));
+      toolbar.appendChild(h('button', {
+        class: 'res-act', title: 'Download results as a file',
+        onclick: () => app.actions.exportResult(),
+      }, Icon.download(), h('span', null, 'Export')));
+    }
   }
   return toolbar;
 }
