@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   KEYS, newTabObj, createState, activeTab, allocTabId,
-  saveQuery, savedForTab, renameSaved, toggleFavorite, sortedSaved,
+  saveQuery, savedForTab, renameSaved, toggleFavorite, sortedSaved, importSaved,
   deleteSaved, recordHistory, clearHistory, deleteHistory,
 } from '../../src/state.js';
 
@@ -141,6 +141,23 @@ describe('saved queries', () => {
     toggleFavorite(s, 'missing', save); // no-op
     expect(sortedSaved(s).map((q) => q.id)).toEqual(['c', 'a', 'b']);
     expect(save).toHaveBeenCalledTimes(1);
+  });
+  it('importSaved merges (add/skip/update), persists, and uses injected genId', () => {
+    const s = createState(reader());
+    s.savedQueries = [{ id: 's1', name: 'A', sql: '1', favorite: false }];
+    const save = vi.fn();
+    const r = importSaved(s, [
+      { id: 's1', name: 'A', sql: '1' },      // skip (content dup)
+      { id: 's1', name: 'A2', sql: '1b' },    // update by id
+      { name: 'B', sql: '2' },                // add (genId)
+    ], save, () => 'gx');
+    expect(r).toEqual({ added: 1, updated: 1, skipped: 1 });
+    expect(s.savedQueries.map((q) => q.name)).toEqual(['A2', 'B']);
+    expect(s.savedQueries.find((q) => q.name === 'B').id).toBe('gx');
+    expect(save).toHaveBeenCalledWith(KEYS.saved, s.savedQueries);
+    // default save + genId (no injection) — exercises the default id generator
+    importSaved(s, [{ name: 'Z', sql: 'zz' }]);
+    expect(s.savedQueries.find((q) => q.name === 'Z').id).toMatch(/^s/);
   });
   it('deleteSaved removes + clears tab pointers', () => {
     const s = createState(reader());

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { renderSavedHistory } from '../../src/ui/saved-history.js';
 import { makeApp } from '../helpers/fake-app.js';
 
@@ -75,6 +75,37 @@ describe('renderSavedHistory', () => {
     // clicking the row while editing another does not load (guard) — covered by Enter path above
   });
 
+  it('saved: Export/Import row — Export disabled when empty, enabled with queries, wired', () => {
+    const app = makeApp();
+    app.state.sidePanel = 'saved';
+    renderSavedHistory(app);
+    let exportBtn = [...app.dom.savedList.querySelectorAll('.sv-io')].find((b) => /Export/.test(b.textContent));
+    expect(exportBtn.disabled).toBe(true); // empty list
+    app.state.savedQueries = [{ id: 's1', name: 'A', sql: '1', favorite: false }];
+    renderSavedHistory(app);
+    exportBtn = [...app.dom.savedList.querySelectorAll('.sv-io')].find((b) => /Export/.test(b.textContent));
+    expect(exportBtn.disabled).toBe(false);
+    click(exportBtn);
+    expect(app.actions.exportSaved).toHaveBeenCalled();
+  });
+  it('saved: Import button opens the file input; change with a file imports it', () => {
+    const app = makeApp();
+    app.state.sidePanel = 'saved';
+    renderSavedHistory(app);
+    const input = app.dom.savedList.querySelector('.saved-actions input[type="file"]');
+    input.click = vi.fn();
+    const importBtn = [...app.dom.savedList.querySelectorAll('.sv-io')].find((b) => /Import/.test(b.textContent));
+    click(importBtn);
+    expect(input.click).toHaveBeenCalled();
+    // change with a file → importSavedFile(file); without → no call
+    const file = { name: 'q.json' };
+    Object.defineProperty(input, 'files', { configurable: true, value: [file] });
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(app.actions.importSavedFile).toHaveBeenCalledWith(file);
+    Object.defineProperty(input, 'files', { configurable: true, value: [] });
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(app.actions.importSavedFile).toHaveBeenCalledTimes(1);
+  });
   it('history: empty state', () => {
     const app = makeApp();
     app.state.sidePanel = 'history';
