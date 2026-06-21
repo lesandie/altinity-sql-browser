@@ -168,7 +168,6 @@ export function renderTable(app, r) {
       },
     }, h('div', { class: 'h-inner' },
       h('span', { class: 'h-name' }, c.name),
-      h('span', { class: 'h-type' }, c.type),
       h('span', { style: { flex: '1' } }),
       isSort ? h('span', { class: 'h-sort' }, dir === 'asc' ? Icon.sortAsc() : Icon.sortDesc()) : null),
       // drag the right edge to resize; swallow the click so it doesn't sort.

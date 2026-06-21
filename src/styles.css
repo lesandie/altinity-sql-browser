@@ -714,7 +714,6 @@ table.res-table.fixed { table-layout: fixed; }
 table.res-table.fixed th, table.res-table.fixed td { overflow: hidden; text-overflow: ellipsis; }
 table.res-table th .h-inner { display: flex; align-items: center; gap: 5px; }
 table.res-table th .h-name { color: var(--fg); }
-table.res-table th .h-type { font-size: 9.5px; color: var(--fg-faint); font-weight: 400; }
 table.res-table th .h-sort { color: var(--accent); display: flex; }
 table.res-table td {
   border-bottom: 1px solid var(--border-faint);

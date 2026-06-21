@@ -121,6 +121,14 @@ describe('renderTable', () => {
     expect(el.querySelector('.h-sort')).not.toBeNull();
     expect(el.querySelector('td.num')).not.toBeNull();
   });
+  it('header shows column names only, not types', () => {
+    const el = renderTable(appWithResult(tableResult()), tableResult());
+    const ths = el.querySelectorAll('thead th');
+    expect(ths[1].querySelector('.h-name').textContent).toBe('n');
+    expect(el.querySelector('.h-type')).toBeNull();
+    expect(ths[1].textContent).not.toContain('UInt64'); // type not rendered
+    expect(ths[2].textContent).not.toContain('String');
+  });
   it('truncates very large result sets', () => {
     const r = newResult('Table');
     r.columns = [{ name: 'n', type: 'UInt64' }];
