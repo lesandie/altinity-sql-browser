@@ -35,7 +35,6 @@ function renderSaved(app, list) {
   if (state.savedQueries.length === 0) {
     list.appendChild(h('div', { class: 'saved-empty' },
       'No saved queries yet.', h('br'), 'Click ', Icon.bookmark(), ' Save next to Run.'));
-    return;
   }
   for (const q of sortedSaved(state)) {
     const editing = app.editingSavedId === q.id;
@@ -84,6 +83,26 @@ function renderSaved(app, list) {
       h('div', { class: 'preview' }, q.sql.split('\n')[0]));
     list.appendChild(row);
   }
+  list.appendChild(savedActions(app));
+}
+
+/** Export / Import row pinned at the bottom of the Saved panel. */
+function savedActions(app) {
+  const empty = app.state.savedQueries.length === 0;
+  const fileInput = h('input', {
+    type: 'file', accept: 'application/json,.json', style: { display: 'none' },
+    onchange: (e) => { const f = e.target.files && e.target.files[0]; if (f) app.actions.importSavedFile(f); e.target.value = ''; },
+  });
+  return h('div', { class: 'saved-actions' },
+    h('button', {
+      class: 'sv-io', disabled: empty ? true : null, title: 'Download all saved queries as JSON',
+      onclick: () => app.actions.exportSaved(),
+    }, Icon.download(), h('span', null, 'Export')),
+    h('button', {
+      class: 'sv-io', title: 'Import saved queries from a JSON file',
+      onclick: () => fileInput.click(),
+    }, Icon.upload(), h('span', null, 'Import')),
+    fileInput);
 }
 
 function renderHistory(app, list) {

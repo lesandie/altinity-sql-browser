@@ -189,6 +189,31 @@ body {
 }
 .hd-btn:hover { background: var(--bg-hover); color: var(--fg); }
 .hd-btn.text { width: auto; padding: 0 10px; font-size: 11.5px; font-family: inherit; border: 1px solid var(--border); }
+.hd-btn.user-btn {
+  width: auto; gap: 5px; padding: 0 8px;
+  font-size: 11.5px; font-family: var(--mono);
+}
+.hd-btn.user-btn .user-short { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.user-menu {
+  z-index: 50; min-width: 200px; padding: 5px;
+  background: var(--bg-panel, var(--bg-editor)); border: 1px solid var(--border);
+  border-radius: 8px; box-shadow: 0 8px 28px rgba(0,0,0,.4);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.user-menu .um-id {
+  padding: 7px 9px; font-size: 11px; color: var(--fg-faint); font-family: var(--mono);
+  border-bottom: 1px solid var(--border-faint); margin-bottom: 3px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.user-menu .um-item {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; padding: 7px 9px; border: none; background: transparent;
+  font: inherit; font-size: 12px; color: var(--fg); cursor: pointer;
+  border-radius: 5px; text-align: left;
+}
+.user-menu .um-item:hover { background: var(--bg-hover); }
+.user-menu .um-item.danger { color: #ef4444; }
+.user-menu .um-item.danger:hover { background: color-mix(in oklab, #ef4444 12%, transparent); }
 
 /* ------------ main row ------------ */
 .main-row { flex: 1; display: flex; min-height: 0; overflow: hidden; }
@@ -232,7 +257,7 @@ body {
 }
 .side-tab.active { color: var(--fg); border-bottom-color: var(--accent); }
 .side-tab:hover { color: var(--fg); }
-.saved-list { flex: 1; overflow: auto; padding: 0; }
+.saved-list { flex: 1; overflow: auto; padding: 0; display: flex; flex-direction: column; }
 .saved-empty {
   padding: 18px 14px; color: var(--fg-faint); font-size: 11.5px;
   text-align: center; line-height: 1.5;
@@ -273,6 +298,21 @@ body {
 .saved-row:hover .sv-act { display: inline-flex; }
 .sv-act:hover { color: var(--fg); background: var(--bg-hover); }
 .side-count { color: var(--fg-faint); font-weight: 400; }
+/* Export/Import row at the end of the Saved panel. margin-top:auto sinks it to
+   the bottom when the list is short, but it scrolls away with a long list (not
+   sticky) — no need to keep it on screen once there's plenty to scroll. */
+.saved-actions {
+  margin-top: auto; flex-shrink: 0;
+  display: flex; gap: 6px; padding: 6px 10px;
+  border-top: 1px solid var(--border); background: var(--bg-panel, var(--bg-sidebar, var(--bg-editor)));
+}
+.sv-io {
+  flex: 1; height: 24px; border: 1px solid var(--border); border-radius: 5px;
+  background: transparent; color: var(--fg-mute); font-size: 11px; font-family: inherit;
+  cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px;
+}
+.sv-io:hover:not([disabled]) { background: var(--bg-hover); color: var(--fg); }
+.sv-io[disabled] { opacity: .45; cursor: not-allowed; }
 .history-row {
   position: relative;
   padding: 8px 10px; cursor: pointer; user-select: none;

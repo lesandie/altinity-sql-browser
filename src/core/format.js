@@ -75,3 +75,14 @@ export function shortVersion(v) {
   const parts = String(v || '').split('.');
   return parts.length > 3 ? parts.slice(0, 3).join('.') : String(v || '');
 }
+
+/**
+ * Short display name for the header user control: the local-part of an email
+ * (before '@'). Falls back to the whole string when there's no '@', and '' for
+ * empty/nullish input.
+ */
+export function userShortName(email) {
+  const s = String(email || '');
+  const at = s.indexOf('@');
+  return at > 0 ? s.slice(0, at) : s;
+}

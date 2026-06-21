@@ -7,11 +7,12 @@
 import { h } from './dom.js';
 import { Icon } from './icons.js';
 import {
-  createState, activeTab, KEYS, recordHistory, saveQuery, savedForTab,
+  createState, activeTab, KEYS, recordHistory, saveQuery, savedForTab, importSaved,
 } from '../state.js';
 import { saveJSON, saveStr } from '../core/storage.js';
 import { decodeJwtPayload, isTokenExpired } from '../core/jwt.js';
-import { sqlString, inferQueryName, shortVersion } from '../core/format.js';
+import { sqlString, inferQueryName, shortVersion, userShortName } from '../core/format.js';
+import { buildExportDoc, parseImportDoc } from '../core/saved-io.js';
 import { toTSV, toCSV } from '../core/export.js';
 import { newResult, applyStreamLine } from '../core/stream.js';
 import { encodeSqlForHash } from '../core/share.js';
@@ -458,6 +459,57 @@ export function createApp(env = {}) {
   }
   app.openSavePopover = openSavePopover;
 
+  // User menu: dropdown under the header user button, holding the identity and
+  // a Log out item. Same close model as the save popover (Esc + outside click).
+  function openUserMenu() {
+    if (app.dom.userMenu) return;
+    const close = () => {
+      doc.removeEventListener('keydown', onKey, true);
+      doc.removeEventListener('mousedown', onOutside, true);
+      if (app.dom.userMenu) { app.dom.userMenu.remove(); app.dom.userMenu = null; }
+    };
+    const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); close(); } };
+    const onOutside = (e) => { if (app.dom.userMenu && !app.dom.userMenu.contains(e.target) && e.target !== app.dom.userBtn && !app.dom.userBtn.contains(e.target)) close(); };
+    const menu = h('div', { class: 'user-menu' },
+      h('div', { class: 'um-id' }, app.email()),
+      h('button', { class: 'um-item danger', onclick: () => { close(); app.signOut(); } }, Icon.logout(), h('span', null, 'Log out')));
+    app.dom.userMenu = menu;
+    const r = app.dom.userBtn.getBoundingClientRect();
+    menu.style.position = 'fixed';
+    menu.style.top = (r.bottom + 6) + 'px';
+    menu.style.right = Math.max(8, (win.innerWidth || 0) - r.right) + 'px';
+    doc.body.appendChild(menu);
+    doc.addEventListener('keydown', onKey, true);
+    doc.addEventListener('mousedown', onOutside, true);
+  }
+  app.openUserMenu = openUserMenu;
+
+  // --- export / import saved queries -------------------------------------
+  function exportSaved() {
+    const qs = app.state.savedQueries;
+    if (!qs.length) { flashToast('Nothing to export', { document: doc }); return; }
+    const nowISO = new Date().toISOString();
+    downloadFile('sql-browser-queries-' + nowISO.slice(0, 10) + '.json', 'application/json',
+      JSON.stringify(buildExportDoc(qs, nowISO), null, 2));
+    flashToast('Exported ' + qs.length + (qs.length === 1 ? ' query' : ' queries'), { document: doc });
+  }
+  function importSavedFile(file) {
+    const reader = new (env.FileReader || win.FileReader)();
+    reader.onload = () => {
+      try {
+        const { queries } = parseImportDoc(String(reader.result));
+        const { added, updated, skipped } = importSaved(app.state, queries, saveJSON);
+        app.updateSaveBtn();
+        renderSavedHistory(app);
+        flashToast('Added ' + added + ' · updated ' + updated + ' · skipped ' + skipped, { document: doc });
+      } catch (e) {
+        flashToast('✕ ' + ((e && e.message) || e), { document: doc });
+      }
+    };
+    reader.onerror = () => flashToast('✕ Could not read file', { document: doc });
+    reader.readAsText(file);
+  }
+
   function toggleTheme() {
     app.state.theme = app.state.theme === 'dark' ? 'light' : 'dark';
     app.savePref('theme', app.state.theme);
@@ -477,6 +529,9 @@ export function createApp(env = {}) {
     copyResult,
     exportResult,
     save: openSavePopover,
+    openUserMenu,
+    exportSaved,
+    importSavedFile,
     formatQuery,
     insertCreate,
     openShortcuts: () => openShortcuts(app),
@@ -502,6 +557,8 @@ export function renderApp(app, helpers) {
   app.dom.connStatus = h('div', { class: 'conn-status dim' }, h('span', { class: 'ver' }, 'Connecting…'));
   app.dom.themeBtn = h('button', { class: 'hd-btn', title: 'Toggle theme', onclick: helpers.toggleTheme });
   app.dom.themeBtn.appendChild(state.theme === 'dark' ? Icon.sun() : Icon.moon());
+  app.dom.userBtn = h('button', { class: 'hd-btn user-btn', title: app.email(), onclick: () => app.actions.openUserMenu() },
+    h('span', { class: 'user-short' }, userShortName(app.email())), Icon.chevDown());
 
   const header = h('div', { class: 'app-header' },
     h('div', { class: 'logo-mark' }, 'A'),
@@ -515,8 +572,7 @@ export function renderApp(app, helpers) {
     }, Icon.github()),
     h('button', { class: 'hd-btn', title: 'Keyboard shortcuts (?)', onclick: () => app.actions.openShortcuts() }, Icon.shortcuts()),
     app.dom.themeBtn,
-    h('div', { class: 'user-email', title: app.email() }, app.email()),
-    h('button', { class: 'hd-btn text', title: 'Log out', onclick: () => app.signOut() }, 'Log Out'));
+    app.dom.userBtn);
 
   app.dom.schemaSearchInput = h('input', {
     type: 'text', placeholder: 'Search tables, columns…',

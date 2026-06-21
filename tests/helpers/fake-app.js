@@ -42,6 +42,8 @@ export function makeApp(over = {}) {
       copyResult: vi.fn(),
       exportResult: vi.fn(),
       save: vi.fn(),
+      exportSaved: vi.fn(),
+      importSavedFile: vi.fn(),
       formatQuery: vi.fn(),
       insertCreate: vi.fn(),
       openShortcuts: vi.fn(),

@@ -81,6 +81,8 @@ export const Icon = {
   shortcuts: () => iconEl('<rect x="1.5" y="3" width="9" height="6" rx="1"/><path d="M3.5 5h.01M6 5h.01M8.5 5h.01M3.5 7h5"/>', 12, 12, 1.3),
   copy: () => iconEl('<rect x="3.5" y="3.5" width="7" height="7" rx="1"/><path d="M2 8.5V2.5a1 1 0 0 1 1-1h6"/>', 12, 12),
   download: () => iconEl('<path d="M6 1.5v6.5M3.5 5.5L6 8l2.5-2.5"/><path d="M2 10h8"/>', 12, 12),
+  upload: () => iconEl('<path d="M6 8.5V2M3.5 4.5L6 2l2.5 2.5"/><path d="M2 10h8"/>', 12, 12),
+  logout: () => iconEl('<path d="M5.5 2.5H3a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1h2.5"/><path d="M7 8.5L9.5 6 7 3.5M9.5 6H4.5"/>', 12, 12),
   // Same glyph as the JSON view tab so the Format button's { } matches it.
   braces: () => svg('M4 1.5C2.5 1.5 2.5 3 2.5 4S2.5 5 1.5 6c1 1 1 2 1 2s0 1.5 1.5 1.5M8 1.5c1.5 0 1.5 1.5 1.5 2.5s0 1 1 2c-1 1-1 2-1 2s0 1.5-1.5 1.5', 12, 12),
   bookmark: () => iconEl('<path d="M3.5 1.8h5a.6.6 0 0 1 .6.6v8.2l-3.1-2-3.1 2V2.4a.6.6 0 0 1 .6-.6z"/>', 12, 12, 1.3),

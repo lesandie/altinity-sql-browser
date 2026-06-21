@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  clamp, formatRows, formatBytes, timeAgo, sqlString, inferQueryName, isNumericType, shortVersion,
+  clamp, formatRows, formatBytes, timeAgo, sqlString, inferQueryName, isNumericType, shortVersion, userShortName,
 } from '../../src/core/format.js';
 
 describe('clamp', () => {
@@ -111,5 +111,17 @@ describe('shortVersion', () => {
     expect(shortVersion('26.3')).toBe('26.3');
     expect(shortVersion('')).toBe('');
     expect(shortVersion(null)).toBe('');
+  });
+});
+
+describe('userShortName', () => {
+  it('returns the email local-part', () => {
+    expect(userShortName('btyshkevich@altinity.com')).toBe('btyshkevich');
+  });
+  it('falls back to the whole string with no @, and "" for empty/nullish', () => {
+    expect(userShortName('justname')).toBe('justname');
+    expect(userShortName('@nolocal')).toBe('@nolocal'); // at index 0 → no split
+    expect(userShortName('')).toBe('');
+    expect(userShortName(null)).toBe('');
   });
 });

@@ -93,7 +93,9 @@ describe('renderApp shell', () => {
     expect(app.root.querySelector('.app-header')).not.toBeNull();
     expect(app.root.querySelector('.sidebar')).not.toBeNull();
     expect(app.root.querySelector('.sql-editor')).not.toBeNull();
-    expect(app.root.querySelector('.user-email').textContent).toBe('me@example.com');
+    // user control shows the short name (local-part) + full email on hover
+    expect(app.dom.userBtn.querySelector('.user-short').textContent).toBe('me');
+    expect(app.dom.userBtn.getAttribute('title')).toBe('me@example.com');
     await Promise.resolve();
   });
   it('toggles theme via the header button', () => {
@@ -103,16 +105,28 @@ describe('renderApp shell', () => {
     expect(app.savePref).toBeUndefined; // savePref is internal; theme attr set
     expect(document.documentElement.getAttribute('data-theme')).toBe('light');
   });
-  it('sign-out clears tokens and shows login', () => {
+  it('user menu: open → Log out clears tokens and shows login', () => {
     const { app, e } = rendered();
-    app.root.querySelector('.hd-btn.text').dispatchEvent(new Event('click'));
+    app.dom.userBtn.dispatchEvent(new Event('click'));
+    const menu = document.querySelector('.user-menu');
+    expect(menu).not.toBeNull();
+    expect(menu.querySelector('.um-id').textContent).toBe('me@example.com');
+    menu.querySelector('.um-item.danger').dispatchEvent(new Event('click', { bubbles: true }));
     expect(app.token).toBeNull();
     expect(e.sessionStorage.getItem('oauth_id_token')).toBeNull();
     expect(app.root.querySelector('.login-screen')).not.toBeNull();
+    expect(document.querySelector('.user-menu')).toBeNull(); // closed
   });
-  it('header has a Log Out button and a GitHub source link', () => {
+  it('user menu closes on Escape and outside-click; header has a GitHub source link', () => {
     const { app } = rendered();
-    expect(app.root.querySelector('.hd-btn.text').textContent).toContain('Log Out');
+    app.dom.userBtn.dispatchEvent(new Event('click'));
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(document.querySelector('.user-menu')).toBeNull();
+    app.actions.openUserMenu();
+    app.actions.openUserMenu(); // idempotent while open
+    expect(document.querySelectorAll('.user-menu')).toHaveLength(1);
+    document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    expect(document.querySelector('.user-menu')).toBeNull();
     const gh = app.root.querySelector('a.hd-btn[href*="github.com"]');
     expect(gh).not.toBeNull();
     expect(gh.getAttribute('target')).toBe('_blank');
@@ -451,6 +465,44 @@ describe('share + star + columns', () => {
     expect(app.activeTab().savedId).toBe('s9');
     expect(app.dom.saveBtn.classList.contains('saved')).toBe(true);
     expect(app.dom.saveBtn.textContent).toContain('Saved');
+  });
+  const fakeReader = (content, fail) => class {
+    readAsText() { this.result = content; if (fail) this.onerror && this.onerror(); else this.onload && this.onload(); }
+  };
+  it('exportSaved downloads the envelope; empty list → toast only', () => {
+    const download = vi.fn();
+    const app = createApp(env({ download }));
+    app.renderApp();
+    app.actions.exportSaved(); // empty
+    expect(download).not.toHaveBeenCalled();
+    expect(document.querySelector('.share-toast').textContent).toBe('Nothing to export');
+    app.state.savedQueries = [{ id: 's1', name: 'A', sql: 'SELECT 1', favorite: true }];
+    app.actions.exportSaved();
+    const [fname, mime, content] = download.mock.calls[0];
+    expect(fname).toMatch(/^sql-browser-queries-\d{4}-\d{2}-\d{2}\.json$/);
+    expect(mime).toBe('application/json');
+    const docObj = JSON.parse(content);
+    expect(docObj.format).toBe('altinity-sql-browser/saved-queries');
+    expect(docObj.queries).toEqual([{ id: 's1', name: 'A', sql: 'SELECT 1', favorite: true }]);
+    expect(document.querySelector('.share-toast').textContent).toBe('Exported 1 query');
+  });
+  it('importSavedFile merges a valid file and toasts counts', () => {
+    const text = JSON.stringify({ format: 'altinity-sql-browser/saved-queries', version: 1, queries: [{ id: 'x1', name: 'New', sql: 'SELECT 9' }] });
+    const app = createApp(env({ FileReader: fakeReader(text) }));
+    app.renderApp();
+    app.actions.importSavedFile({});
+    expect(app.state.savedQueries.some((q) => q.name === 'New')).toBe(true);
+    expect(document.querySelector('.share-toast').textContent).toBe('Added 1 · updated 0 · skipped 0');
+  });
+  it('importSavedFile reports parse errors and read errors with ✕', () => {
+    const bad = createApp(env({ FileReader: fakeReader('{not json') }));
+    bad.renderApp();
+    bad.actions.importSavedFile({});
+    expect(document.querySelector('.share-toast').textContent).toBe('✕ Not a valid JSON file');
+    const err = createApp(env({ FileReader: fakeReader('', true) }));
+    err.renderApp();
+    err.actions.importSavedFile({});
+    expect(document.querySelector('.share-toast').textContent).toBe('✕ Could not read file');
   });
   it('loadColumns fills the table object', async () => {
     const e = env({ fetch: makeFetch([[(u, sql) => /system\.columns/.test(sql), resp({ json: { data: [{ name: 'id', type: 'UInt64', comment: '' }] } })]]) });

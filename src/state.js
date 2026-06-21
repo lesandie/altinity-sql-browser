@@ -3,6 +3,7 @@
 // every operation is unit-testable with a spy and no real localStorage.
 
 import { clamp } from './core/format.js';
+import { mergeSaved } from './core/saved-io.js';
 import { loadJSON, saveJSON, loadStr } from './core/storage.js';
 
 export const KEYS = {
@@ -118,6 +119,17 @@ export function sortedSaved(state) {
     .map((q, i) => [q, i])
     .sort((a, b) => (b[0].favorite ? 1 : 0) - (a[0].favorite ? 1 : 0) || a[1] - b[1])
     .map(([q]) => q);
+}
+
+/**
+ * Merge imported queries into savedQueries (dedupe by content, update by id,
+ * else add). Returns { added, updated, skipped }.
+ */
+export function importSaved(state, queries, save = saveJSON, genId = () => 's' + Date.now() + rnd()) {
+  const { merged, added, updated, skipped } = mergeSaved(state.savedQueries, queries, genId);
+  state.savedQueries = merged;
+  save(KEYS.saved, state.savedQueries);
+  return { added, updated, skipped };
 }
 
 /** Delete a saved query by id and clear any tab pointer to it. */
