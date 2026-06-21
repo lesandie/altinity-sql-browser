@@ -298,10 +298,11 @@ body {
 .saved-row:hover .sv-act { display: inline-flex; }
 .sv-act:hover { color: var(--fg); background: var(--bg-hover); }
 .side-count { color: var(--fg-faint); font-weight: 400; }
-/* Export/Import row, pinned at the bottom of the Saved panel (sticky over the
-   scrolling list; margin-top:auto keeps it at the bottom when the list is short). */
+/* Export/Import row at the end of the Saved panel. margin-top:auto sinks it to
+   the bottom when the list is short, but it scrolls away with a long list (not
+   sticky) — no need to keep it on screen once there's plenty to scroll. */
 .saved-actions {
-  margin-top: auto; position: sticky; bottom: 0; flex-shrink: 0;
+  margin-top: auto; flex-shrink: 0;
   display: flex; gap: 6px; padding: 6px 10px;
   border-top: 1px solid var(--border); background: var(--bg-panel, var(--bg-sidebar, var(--bg-editor)));
 }
