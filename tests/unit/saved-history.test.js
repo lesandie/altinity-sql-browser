@@ -18,19 +18,61 @@ describe('renderSavedHistory', () => {
     expect(app.dom.savedList.textContent).toContain('No saved queries yet.');
   });
 
-  it('saved: lists rows, loads on click, deletes on close', () => {
+  const byTitle = (root, t) => [...root.querySelectorAll('.sv-act')].find((b) => b.title === t);
+
+  it('saved: lists rows, loads on click, deletes via trash + refreshes Save button', () => {
     const app = makeApp();
     app.state.sidePanel = 'saved';
-    app.state.savedQueries = [{ id: 's1', name: 'Q1', sql: 'SELECT 1\n-- more' }];
+    app.state.savedQueries = [{ id: 's1', name: 'Q1', sql: 'SELECT 1\n-- more', favorite: false }];
     renderSavedHistory(app);
     const row = app.dom.savedList.querySelector('.saved-row');
     expect(row.querySelector('.preview').textContent).toBe('SELECT 1');
     click(row);
     expect(app.actions.loadIntoNewTab).toHaveBeenCalledWith('Q1', 'SELECT 1\n-- more');
-    const del = row.querySelector('.del');
-    del.dispatchEvent(new Event('click', { bubbles: true }));
+    byTitle(row, 'Delete').dispatchEvent(new Event('click', { bubbles: true }));
     expect(app.state.savedQueries).toHaveLength(0);
-    expect(app.actions.updateStar).toHaveBeenCalled();
+    expect(app.updateSaveBtn).toHaveBeenCalled();
+  });
+
+  it('saved: live count + star toggles favorite and re-sorts favorites first', () => {
+    const app = makeApp();
+    app.state.sidePanel = 'saved';
+    app.state.savedQueries = [
+      { id: 'a', name: 'A', sql: '1', favorite: false },
+      { id: 'b', name: 'B', sql: '2', favorite: false },
+    ];
+    renderSavedHistory(app);
+    expect(app.dom.savedTabsRow.querySelector('.side-count').textContent).toContain('2');
+    const names = () => [...app.dom.savedList.querySelectorAll('.saved-row .name')].map((n) => n.textContent);
+    expect(names()).toEqual(['A', 'B']);
+    const stars = app.dom.savedList.querySelectorAll('.sv-star');
+    stars[1].dispatchEvent(new Event('click', { bubbles: true })); // favorite B
+    expect(app.state.savedQueries.find((q) => q.id === 'b').favorite).toBe(true);
+    expect(names()).toEqual(['B', 'A']);
+  });
+
+  it('saved: pencil → inline rename; Enter commits, Escape cancels', () => {
+    const app = makeApp();
+    app.state.sidePanel = 'saved';
+    app.state.savedQueries = [{ id: 's1', name: 'Old', sql: '1', favorite: false }];
+    renderSavedHistory(app);
+    byTitle(app.dom.savedList, 'Rename').dispatchEvent(new Event('click', { bubbles: true }));
+    expect(app.editingSavedId).toBe('s1');
+    let input = app.dom.savedList.querySelector('.sv-edit');
+    expect(input.value).toBe('Old');
+    input.value = 'New';
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(app.state.savedQueries[0].name).toBe('New');
+    expect(app.editingSavedId).toBeNull();
+    expect(app.actions.rerenderTabs).toHaveBeenCalled();
+    // re-open, edit, Escape → unchanged
+    byTitle(app.dom.savedList, 'Rename').dispatchEvent(new Event('click', { bubbles: true }));
+    input = app.dom.savedList.querySelector('.sv-edit');
+    input.value = 'XXX';
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(app.editingSavedId).toBeNull();
+    expect(app.state.savedQueries[0].name).toBe('New');
+    // clicking the row while editing another does not load (guard) — covered by Enter path above
   });
 
   it('history: empty state', () => {

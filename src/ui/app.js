@@ -7,11 +7,12 @@
 import { h } from './dom.js';
 import { Icon } from './icons.js';
 import {
-  createState, activeTab, KEYS, recordHistory, findSavedBySql, toggleSaved,
+  createState, activeTab, KEYS, recordHistory, saveQuery, savedForTab,
 } from '../state.js';
 import { saveJSON, saveStr } from '../core/storage.js';
 import { decodeJwtPayload, isTokenExpired } from '../core/jwt.js';
-import { sqlString } from '../core/format.js';
+import { sqlString, inferQueryName } from '../core/format.js';
+import { toTSV, toCSV } from '../core/export.js';
 import { newResult, applyStreamLine } from '../core/stream.js';
 import { encodeSqlForHash } from '../core/share.js';
 import { generatePKCE, randomState } from '../core/pkce.js';
@@ -347,18 +348,111 @@ export function createApp(env = {}) {
       flashToast('Link in URL — copy manually', { document: doc });
     }
   }
-  app.updateStar = () => {
-    if (!app.dom.starBtn) return;
-    const saved = !!findSavedBySql(app.state, app.activeTab().sql || '');
-    app.dom.starBtn.replaceChildren(Icon.star(saved));
-    app.dom.starBtn.classList.toggle('star-on', saved);
-    app.dom.starBtn.title = saved ? 'Remove from saved (⌘S)' : 'Save query (⌘S)';
-  };
-  function toggleSavedActive() {
-    toggleSaved(app.state, app.activeTab().sql || '', saveJSON);
-    app.updateStar();
-    if (app.state.sidePanel === 'saved') renderSavedHistory(app);
+  // --- copy / export results --------------------------------------------
+  // A result is exportable once it has raw text or at least one row.
+  function exportableResult() {
+    const r = app.activeTab().result;
+    return r && !r.error && (r.rawText != null || r.rows.length > 0) ? r : null;
   }
+  function copyResult() {
+    const r = exportableResult();
+    if (!r) { flashToast('Nothing to copy', { document: doc }); return; }
+    const text = r.rawText != null ? r.rawText : toTSV(r.columns, r.rows);
+    const clip = (env.navigator || win.navigator || {}).clipboard;
+    if (clip && clip.writeText) {
+      clip.writeText(text)
+        .then(() => flashToast('Copied to clipboard', { document: doc }))
+        .catch(() => flashToast('Copy failed', { document: doc }));
+    } else {
+      flashToast('Copy not supported', { document: doc });
+    }
+  }
+  function exportResult() {
+    const r = exportableResult();
+    if (!r) { flashToast('Nothing to export', { document: doc }); return; }
+    let content, ext, mime;
+    if (r.rawText != null) {
+      content = r.rawText;
+      ext = r.rawFormat === 'JSON' ? 'json' : 'tsv';
+      mime = ext === 'json' ? 'application/json' : 'text/tab-separated-values';
+    } else {
+      content = toCSV(r.columns, r.rows);
+      ext = 'csv';
+      mime = 'text/csv';
+    }
+    const base = (app.activeTab().name || 'result').replace(/[^\w.-]+/g, '_').replace(/^_+|_+$/g, '') || 'result';
+    downloadFile(base + '.' + ext, mime, content);
+    flashToast('Exported ' + base + '.' + ext, { document: doc });
+  }
+  // Trigger a browser download. Injectable via env.download for tests.
+  function downloadFile(filename, mime, content) {
+    if (env.download) { env.download(filename, mime, content); return; }
+    const url = win.URL || win.webkitURL;
+    const href = url.createObjectURL(new win.Blob([content], { type: mime }));
+    const a = doc.createElement('a');
+    a.href = href;
+    a.download = filename;
+    doc.body.appendChild(a);
+    a.click();
+    doc.body.removeChild(a);
+    url.revokeObjectURL(href);
+  }
+
+  // The toolbar Save button reads "Saved" (accent) when the active tab is linked
+  // to a saved entry and its SQL is unchanged; "Save" otherwise (incl. dirty).
+  app.updateSaveBtn = () => {
+    if (!app.dom.saveBtn) return;
+    const tab = app.activeTab();
+    const entry = savedForTab(app.state, tab);
+    const clean = !!entry && entry.sql.trim() === String(tab.sql || '').trim();
+    app.dom.saveBtn.classList.toggle('saved', clean);
+    app.dom.saveBtn.replaceChildren(Icon.bookmark(), h('span', null, clean ? 'Saved' : 'Save'));
+    app.dom.saveBtn.title = clean ? 'Saved — edit to re-save (⌘S)' : 'Save query (⌘S)';
+  };
+  // Name popover anchored under the Save button. Prefill with the tab's name (or
+  // a name inferred from the SQL); Enter/Save → saveQuery (create or update in
+  // place) + relink the tab; Esc / click-outside cancels.
+  function openSavePopover() {
+    const tab = app.activeTab();
+    if (!String(tab.sql || '').trim()) { flashToast('Nothing to save', { document: doc }); return; }
+    if (app.dom.savePopover) return;
+    const entry = savedForTab(app.state, tab);
+    const prefill = entry ? entry.name : (tab.name && tab.name !== 'Untitled' ? tab.name : inferQueryName(tab.sql));
+    const input = h('input', { class: 'sp-input', value: prefill });
+    const close = () => {
+      doc.removeEventListener('keydown', onKey, true);
+      doc.removeEventListener('mousedown', onOutside, true);
+      if (app.dom.savePopover) { app.dom.savePopover.remove(); app.dom.savePopover = null; }
+    };
+    const commit = () => {
+      if (!input.value.trim()) return;
+      saveQuery(app.state, tab, input.value, saveJSON);
+      close();
+      app.updateSaveBtn();
+      app.actions.rerenderTabs();
+      renderSavedHistory(app);
+      flashToast('Saved', { document: doc });
+    };
+    const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); close(); } };
+    const onOutside = (e) => { if (app.dom.savePopover && !app.dom.savePopover.contains(e.target) && e.target !== app.dom.saveBtn) close(); };
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); commit(); } });
+    const pop = h('div', { class: 'save-popover' },
+      h('div', { class: 'sp-label' }, 'Save query as'),
+      input,
+      h('div', { class: 'sp-actions' },
+        h('button', { class: 'sp-cancel', onclick: close }, 'Cancel'),
+        h('button', { class: 'sp-save', onclick: commit }, 'Save')));
+    app.dom.savePopover = pop;
+    const r = app.dom.saveBtn.getBoundingClientRect();
+    pop.style.position = 'fixed';
+    pop.style.top = (r.bottom + 6) + 'px';
+    pop.style.right = Math.max(8, (win.innerWidth || 0) - r.right) + 'px';
+    doc.body.appendChild(pop);
+    doc.addEventListener('keydown', onKey, true);
+    doc.addEventListener('mousedown', onOutside, true);
+    setTimeout(() => { input.focus(); input.select(); });
+  }
+  app.openSavePopover = openSavePopover;
 
   function toggleTheme() {
     app.state.theme = app.state.theme === 'dark' ? 'light' : 'dark';
@@ -376,7 +470,9 @@ export function createApp(env = {}) {
     loadIntoNewTab: (name, sql) => loadIntoNewTab(app, name, sql),
     login: (idpId) => login(idpId),
     share,
-    toggleSaved: toggleSavedActive,
+    copyResult,
+    exportResult,
+    save: openSavePopover,
     formatQuery,
     insertCreate,
     openShortcuts: () => openShortcuts(app),
@@ -385,7 +481,7 @@ export function createApp(env = {}) {
     loadColumns,
     rerenderTabs: () => renderTabs(app),
     rerenderResults: () => renderResults(app),
-    updateStar: () => app.updateStar(),
+    updateSaveBtn: () => app.updateSaveBtn(),
   };
 
   app.renderApp = () => renderApp(app, { toggleTheme, startDrag });
@@ -462,10 +558,11 @@ export function renderApp(app, helpers) {
     h('option', { value: 'Table', selected: state.outputFormat === 'Table' }, 'Table'),
     h('option', { value: 'TSV', selected: state.outputFormat === 'TSV' }, 'TSV'),
     h('option', { value: 'JSON', selected: state.outputFormat === 'JSON' }, 'JSON'));
-  app.dom.starBtn = h('button', { class: 'tb-btn star-btn', title: 'Save query', onclick: () => app.actions.toggleSaved() });
+  app.dom.fmtBtn = h('button', { class: 'tb-btn', title: 'Format SQL (⌘⇧↵)', onclick: () => app.actions.formatQuery() }, Icon.braces(), 'Format');
+  app.dom.saveBtn = h('button', { class: 'tb-btn save-btn', onclick: () => app.actions.save() });
   app.dom.shareBtn = h('button', { class: 'tb-btn', title: 'Share query (copies link)', onclick: () => app.actions.share() }, Icon.share(), 'Share');
 
-  const editorToolbar = h('div', { class: 'ed-toolbar' }, app.dom.runBtn, h('div', { style: { flex: '1' } }), app.dom.starBtn, app.dom.shareBtn, app.dom.fmtSelect);
+  const editorToolbar = h('div', { class: 'ed-toolbar' }, app.dom.runBtn, app.dom.fmtBtn, h('div', { style: { flex: '1' } }), app.dom.saveBtn, app.dom.shareBtn, app.dom.fmtSelect);
   app.dom.editorRegion = h('div', { class: 'editor-region', style: { height: state.editorPct + '%', minHeight: '0', overflow: 'hidden', flexShrink: '0' } });
   app.dom.resultsRegion = h('div', { class: 'results-region', style: { flex: '1', minHeight: '0', overflow: 'hidden' } });
   app.dom.editorResultsSplit = h('div', { class: 'row-resize', onmousedown: (e) => helpers.startDrag(e, 'row', dragCtx) });
@@ -479,7 +576,7 @@ export function renderApp(app, helpers) {
   renderResults(app);
   renderSchema(app);
   renderSavedHistory(app);
-  app.updateStar();
+  app.updateSaveBtn();
   app.loadVersion();
   app.loadSchema();
 }

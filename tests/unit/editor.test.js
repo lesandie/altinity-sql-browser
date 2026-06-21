@@ -35,7 +35,7 @@ describe('mountEditor', () => {
     expect(app.activeTab().dirty).toBe(true);
     expect(app.dom.editorGutter.children.length).toBe(2);
     expect(app.actions.rerenderTabs).toHaveBeenCalled();
-    expect(app.actions.updateStar).toHaveBeenCalled();
+    expect(app.actions.updateSaveBtn).toHaveBeenCalled();
   });
   it('scroll syncs pre + gutter to the textarea', () => {
     const { app, ta } = mount();

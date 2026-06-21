@@ -61,7 +61,7 @@ export function mountEditor(app, container) {
     tab.dirty = true;
     paint(ta.value);
     app.actions.rerenderTabs();
-    app.actions.updateStar();
+    app.actions.updateSaveBtn();
   });
   ta.addEventListener('scroll', () => {
     pre.scrollTop = ta.scrollTop;

@@ -47,7 +47,7 @@ describe('selectTab', () => {
     selectTab(app, 't2');
     expect(app.state.activeTabId).toBe('t2');
     expect(app.actions.rerenderResults).toHaveBeenCalled();
-    expect(app.actions.updateStar).toHaveBeenCalled();
+    expect(app.actions.updateSaveBtn).toHaveBeenCalled();
   });
   it('no-ops if already active', () => {
     const app = makeApp();

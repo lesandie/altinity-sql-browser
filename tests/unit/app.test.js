@@ -389,13 +389,59 @@ describe('share + star + columns', () => {
     app.activeTab().sql = '  ';
     expect(() => app.actions.share()).not.toThrow();
   });
-  it('toggleSaved stars the active query and updates the button', () => {
+  it('save opens a name popover; Save commits, links the tab, and the button reads "Saved"', () => {
     const app = createApp(env());
     app.renderApp();
     app.activeTab().sql = 'SELECT 42';
-    app.actions.toggleSaved();
+    app.actions.save();
+    const pop = document.querySelector('.save-popover');
+    expect(pop).not.toBeNull();
+    expect(pop.querySelector('.sp-input').value).toBe('SELECT 42'); // inferred name
+    pop.querySelector('.sp-input').value = 'My fave';
+    pop.querySelector('.sp-save').dispatchEvent(new Event('click'));
     expect(app.state.savedQueries).toHaveLength(1);
-    expect(app.dom.starBtn.classList.contains('star-on')).toBe(true);
+    expect(app.state.savedQueries[0]).toMatchObject({ name: 'My fave', sql: 'SELECT 42' });
+    expect(app.activeTab().savedId).toBe(app.state.savedQueries[0].id);
+    expect(app.dom.saveBtn.classList.contains('saved')).toBe(true);
+    expect(app.dom.saveBtn.textContent).toContain('Saved');
+    expect(document.querySelector('.save-popover')).toBeNull(); // closed
+  });
+  it('save popover: re-opening is idempotent, Esc closes, dirty edit flips "Saved"→"Save"', () => {
+    const app = createApp(env());
+    app.renderApp();
+    app.activeTab().sql = 'SELECT 1';
+    app.actions.save();
+    app.actions.save(); // second call no-ops while open
+    expect(document.querySelectorAll('.save-popover')).toHaveLength(1);
+    document.querySelector('.save-popover .sp-input').value = 'Q';
+    document.querySelector('.save-popover .sp-save').dispatchEvent(new Event('click'));
+    expect(app.dom.saveBtn.textContent).toContain('Saved');
+    // edit → button reverts to "Save"
+    app.activeTab().sql = 'SELECT 2';
+    app.updateSaveBtn();
+    expect(app.dom.saveBtn.classList.contains('saved')).toBe(false);
+    expect(app.dom.saveBtn.textContent).toContain('Save');
+    // re-open then Escape closes without saving
+    app.actions.save();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(document.querySelector('.save-popover')).toBeNull();
+  });
+  it('save is a no-op (toast) for empty SQL', () => {
+    const app = createApp(env());
+    app.renderApp();
+    app.activeTab().sql = '   ';
+    app.actions.save();
+    expect(document.querySelector('.save-popover')).toBeNull();
+    expect(document.querySelector('.share-toast').textContent).toBe('Nothing to save');
+  });
+  it('save popover closes on click outside', () => {
+    const app = createApp(env());
+    app.renderApp();
+    app.activeTab().sql = 'SELECT 1';
+    app.actions.save();
+    expect(document.querySelector('.save-popover')).not.toBeNull();
+    document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    expect(document.querySelector('.save-popover')).toBeNull();
   });
   it('loadColumns fills the table object', async () => {
     const e = env({ fetch: makeFetch([[(u, sql) => /system\.columns/.test(sql), resp({ json: { data: [{ name: 'id', type: 'UInt64', comment: '' }] } })]]) });
@@ -440,7 +486,9 @@ describe('exhaustive controller coverage', () => {
     app.root.querySelector('.new-tab').dispatchEvent(new Event('click'));
     app.root.querySelectorAll('.hd-btn')[0].dispatchEvent(new Event('click')); // shortcuts
     app.activeTab().sql = 'SELECT 1'; // set sql on the now-active tab
-    app.dom.starBtn.dispatchEvent(new Event('click')); // save
+    app.dom.saveBtn.dispatchEvent(new Event('click')); // open save popover
+    document.querySelector('.save-popover .sp-input').value = 'Q';
+    document.querySelector('.save-popover .sp-save').dispatchEvent(new Event('click')); // commit
     app.dom.shareBtn.dispatchEvent(new Event('click')); // share
     expect(app.state.tabs.length).toBeGreaterThan(1);
     expect(app.state.savedQueries.length).toBe(1);
@@ -530,7 +578,7 @@ describe('exhaustive controller coverage', () => {
   it('loaders + run guard tolerate being called before renderApp', async () => {
     const app = createApp(env({ fetch: makeFetch([[() => true, resp({ json: { data: [] } })]]) }));
     await app.loadVersion(); // setConn guard: no connStatus
-    app.updateStar(); // guard: no starBtn
+    app.updateSaveBtn(); // guard: no starBtn
 
     // signed-out run with non-empty SQL exercises the getToken()→onSignedOut path
     const noToken = createApp(env({ sessionStorage: memSession({}) }));
@@ -558,7 +606,7 @@ describe('exhaustive controller coverage', () => {
     app.actions.loadIntoNewTab('n', 'SELECT 2');
     app.actions.rerenderTabs();
     app.actions.rerenderResults();
-    app.actions.updateStar();
+    app.actions.updateSaveBtn();
     app.actions.closeTab(app.state.activeTabId);
     expect(app.state.tabs.length).toBeGreaterThan(0);
   });
@@ -569,7 +617,7 @@ describe('exhaustive controller coverage', () => {
     app.renderApp();
     app.activeTab().sql = ''; // empty
     app.actions.share(); // returns at !sql (covers the `|| ''` empty branch)
-    app.actions.toggleSaved(); // empty sql → no-op
+    app.actions.save(); // empty sql → toast, no popover
     app.activeTab().sql = 'SELECT 1';
     app.actions.share(); // no clipboard anywhere → manual toast
     expect(document.querySelector('.share-toast')).not.toBeNull();
@@ -671,6 +719,69 @@ describe('exhaustive controller coverage', () => {
     expect(decodeURIComponent(escape(atob(auth.slice(6))))).toMatch(/^BorisT:/);
     // the header identity matches the CH user (nickname), not the email claim
     expect(app.email()).toBe('BorisT');
+  });
+
+  it('copyResult: TSV for structured, rawText as-is, nothing-to-copy when empty', async () => {
+    const writeText = vi.fn(async () => {});
+    const app = createApp(env({ window: fakeWin(), navigator: { clipboard: { writeText } } }));
+    app.renderApp();
+    app.activeTab().result = { error: null, rawText: null, columns: [{ name: 'a' }, { name: 'b' }], rows: [['1', 'x']] };
+    app.actions.copyResult();
+    await new Promise((r) => setTimeout(r));
+    expect(writeText).toHaveBeenCalledWith('a\tb\n1\tx');
+    expect(document.querySelector('.share-toast').textContent).toBe('Copied to clipboard');
+    app.activeTab().result = { rawText: 'raw\tdata', rows: [] };
+    app.actions.copyResult();
+    expect(writeText).toHaveBeenLastCalledWith('raw\tdata');
+    app.activeTab().result = null;
+    app.actions.copyResult();
+    expect(document.querySelector('.share-toast').textContent).toBe('Nothing to copy');
+  });
+  it('copyResult: no clipboard → not-supported; rejection → failed', async () => {
+    const app = createApp(env({ window: fakeWin(), navigator: {} }));
+    app.renderApp();
+    app.activeTab().result = { columns: [{ name: 'a' }], rows: [['1']] };
+    app.actions.copyResult();
+    expect(document.querySelector('.share-toast').textContent).toBe('Copy not supported');
+    const app2 = createApp(env({ window: fakeWin(), navigator: { clipboard: { writeText: vi.fn(async () => { throw new Error('x'); }) } } }));
+    app2.renderApp();
+    app2.activeTab().result = { columns: [{ name: 'a' }], rows: [['1']] };
+    app2.actions.copyResult();
+    await new Promise((r) => setTimeout(r));
+    expect(document.querySelector('.share-toast').textContent).toBe('Copy failed');
+  });
+  it('exportResult: CSV for structured (name sanitized), JSON for raw, nothing when empty', () => {
+    const download = vi.fn();
+    const app = createApp(env({ window: fakeWin(), download }));
+    app.renderApp();
+    app.activeTab().name = 'My Query!';
+    app.activeTab().result = { columns: [{ name: 'a' }, { name: 'b' }], rows: [['1', 'x']] };
+    app.actions.exportResult();
+    expect(download).toHaveBeenCalledWith('My_Query.csv', 'text/csv', 'a,b\n1,x');
+    app.activeTab().result = { rawText: '[{"a":1}]', rawFormat: 'JSON', rows: [] };
+    app.actions.exportResult();
+    expect(download).toHaveBeenLastCalledWith(expect.stringMatching(/\.json$/), 'application/json', '[{"a":1}]');
+    app.activeTab().result = null;
+    app.actions.exportResult();
+    expect(document.querySelector('.share-toast').textContent).toBe('Nothing to export');
+  });
+  it('exportResult: raw TSV + junk tab name falls back to result.tsv; native Blob path revokes the URL', () => {
+    const download = vi.fn();
+    const app = createApp(env({ window: fakeWin(), download }));
+    app.renderApp();
+    app.activeTab().name = '!!!';
+    app.activeTab().result = { rawText: 'a\tb', rawFormat: 'TSV', rows: [] };
+    app.actions.exportResult();
+    expect(download).toHaveBeenCalledWith('result.tsv', 'text/tab-separated-values', 'a\tb');
+    // native path (no env.download): exercises Blob + createObjectURL + revoke
+    const createObjectURL = vi.fn(() => 'blob:u');
+    const revokeObjectURL = vi.fn();
+    const app2 = createApp(env({ window: { ...fakeWin(), URL: { createObjectURL, revokeObjectURL }, Blob: class { constructor(p) { this.p = p; } } } }));
+    app2.renderApp();
+    app2.activeTab().result = { columns: [{ name: 'a' }], rows: [['1']] };
+    app2.actions.exportResult();
+    expect(createObjectURL).toHaveBeenCalled();
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:u');
   });
 
   it('shows and dismisses the auth-failure banner', () => {
