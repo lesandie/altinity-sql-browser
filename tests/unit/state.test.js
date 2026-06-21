@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   KEYS, newTabObj, createState, activeTab, allocTabId,
-  findSavedBySql, toggleSaved, deleteSaved, recordHistory, clearHistory, deleteHistory,
+  saveQuery, savedForTab, renameSaved, toggleFavorite, sortedSaved,
+  deleteSaved, recordHistory, clearHistory, deleteHistory,
 } from '../../src/state.js';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -77,28 +78,69 @@ describe('activeTab / allocTabId', () => {
 });
 
 describe('saved queries', () => {
-  it('findSavedBySql matches trimmed sql', () => {
-    const s = createState(reader());
-    s.savedQueries = [{ id: 's1', sql: 'SELECT 1', name: 'n' }];
-    expect(findSavedBySql(s, '  SELECT 1 ')).toMatchObject({ id: 's1' });
-    expect(findSavedBySql(s, 'SELECT 2')).toBeNull();
-    expect(findSavedBySql(s, null)).toBeNull();
-  });
-  it('toggleSaved is a no-op for empty/nullish sql', () => {
+  it('saveQuery is a no-op for empty SQL or empty name', () => {
     const s = createState(reader());
     const save = vi.fn();
-    expect(toggleSaved(s, '   ', save)).toEqual({ saved: false, noop: true });
-    expect(toggleSaved(s, null, save)).toEqual({ saved: false, noop: true });
+    s.tabs[0].sql = '';
+    expect(saveQuery(s, s.tabs[0], 'name', save)).toBeNull();
+    s.tabs[0].sql = 'SELECT 1';
+    expect(saveQuery(s, s.tabs[0], '  ', save)).toBeNull();
     expect(save).not.toHaveBeenCalled();
   });
-  it('toggleSaved adds then removes', () => {
+  it('saveQuery creates + links the tab, then updates in place on re-save', () => {
     const s = createState(reader());
     const save = vi.fn();
-    expect(toggleSaved(s, 'SELECT 1', save, 100)).toEqual({ saved: true });
-    expect(s.savedQueries[0]).toMatchObject({ sql: 'SELECT 1', starred: true });
+    const tab = s.tabs[0];
+    tab.sql = 'SELECT 1';
+    const e1 = saveQuery(s, tab, 'My query', save, 100);
+    expect(e1).toMatchObject({ name: 'My query', sql: 'SELECT 1', favorite: false });
+    expect(tab.savedId).toBe(e1.id);
+    expect(tab.name).toBe('My query');
+    expect(s.savedQueries).toHaveLength(1);
     expect(save).toHaveBeenLastCalledWith(KEYS.saved, s.savedQueries);
-    expect(toggleSaved(s, 'SELECT 1', save, 100)).toEqual({ saved: false });
-    expect(s.savedQueries).toHaveLength(0);
+    // re-save the linked tab → updates the same entry in place
+    tab.sql = 'SELECT 2';
+    const e2 = saveQuery(s, tab, 'My query v2', save, 200);
+    expect(e2.id).toBe(e1.id);
+    expect(s.savedQueries).toHaveLength(1);
+    expect(s.savedQueries[0]).toMatchObject({ name: 'My query v2', sql: 'SELECT 2' });
+    expect(tab.name).toBe('My query v2');
+  });
+  it('savedForTab resolves the linked entry (or null)', () => {
+    const s = createState(reader());
+    s.savedQueries = [{ id: 's1', sql: 'x', name: 'n', favorite: false }];
+    s.tabs[0].savedId = 's1';
+    expect(savedForTab(s, s.tabs[0])).toMatchObject({ id: 's1' });
+    s.tabs[0].savedId = 'gone';
+    expect(savedForTab(s, s.tabs[0])).toBeNull();
+    expect(savedForTab(s, { savedId: null })).toBeNull();
+  });
+  it('renameSaved updates the entry + any linked tab name', () => {
+    const s = createState(reader());
+    s.savedQueries = [{ id: 's1', sql: 'x', name: 'old', favorite: false }];
+    s.tabs[0].savedId = 's1';
+    const save = vi.fn();
+    renameSaved(s, 's1', '  new  ', save);
+    expect(s.savedQueries[0].name).toBe('new');
+    expect(s.tabs[0].name).toBe('new');
+    renameSaved(s, 's1', '   ', save); // blank ignored
+    expect(s.savedQueries[0].name).toBe('new');
+    renameSaved(s, 'missing', 'x', save); // unknown id ignored
+    expect(save).toHaveBeenCalledTimes(1);
+  });
+  it('toggleFavorite flips the flag; sortedSaved puts favorites first (stable)', () => {
+    const s = createState(reader());
+    s.savedQueries = [
+      { id: 'a', sql: '1', name: 'A', favorite: false },
+      { id: 'b', sql: '2', name: 'B', favorite: false },
+      { id: 'c', sql: '3', name: 'C', favorite: false },
+    ];
+    const save = vi.fn();
+    toggleFavorite(s, 'c', save);
+    expect(s.savedQueries.find((q) => q.id === 'c').favorite).toBe(true);
+    toggleFavorite(s, 'missing', save); // no-op
+    expect(sortedSaved(s).map((q) => q.id)).toEqual(['c', 'a', 'b']);
+    expect(save).toHaveBeenCalledTimes(1);
   });
   it('deleteSaved removes + clears tab pointers', () => {
     const s = createState(reader());
@@ -165,10 +207,13 @@ describe('history', () => {
 });
 
 describe('default persistence', () => {
-  it('toggleSaved/deleteSaved/recordHistory/clearHistory persist via storage by default', () => {
+  it('saveQuery/renameSaved/toggleFavorite/deleteSaved/recordHistory/clearHistory persist via storage by default', () => {
     const s = createState(reader());
     // Exercises the default saveJSON path (writes to happy-dom localStorage).
-    toggleSaved(s, 'SELECT 9');
+    s.tabs[0].sql = 'SELECT 9';
+    const e = saveQuery(s, s.tabs[0], 'nine');
+    renameSaved(s, e.id, 'nine!');
+    toggleFavorite(s, e.id);
     recordHistory(s, { sql: 'SELECT 9', result: { rawText: null, rows: [], progress: { elapsed_ns: 0 } } });
     deleteSaved(s, 'nope');
     deleteHistory(s, 'nope');

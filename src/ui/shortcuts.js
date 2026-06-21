@@ -5,7 +5,7 @@ import { h } from './dom.js';
 const SHORTCUTS = [
   ['Run query', '⌘↵'],
   ['Format query', '⌘⇧↵'],
-  ['Save / unsave query', '⌘S'],
+  ['Save query', '⌘S'],
   ['Share query', '⌘⇧S'],
   ['Undo', '⌘Z'],
   ['Redo', '⌘⇧Z'],
@@ -77,8 +77,8 @@ export function handleKeydown(e, app) {
   if (mod && e.key.toLowerCase() === 's') {
     if (!signedIn) return null;
     e.preventDefault();
-    app.actions.toggleSaved();
-    return 'toggleSaved';
+    app.actions.save();
+    return 'save';
   }
   if (mod && e.key.toLowerCase() === 'a') {
     // When a raw result pane (TSV / JSON output) is on screen and the user isn't

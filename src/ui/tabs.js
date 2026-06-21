@@ -28,7 +28,7 @@ function refresh(app) {
   renderTabs(app);
   if (app.dom.editorSync) app.dom.editorSync();
   app.actions.rerenderResults();
-  app.actions.updateStar();
+  app.actions.updateSaveBtn();
 }
 
 /** Switch the active tab (no-op if already active). */

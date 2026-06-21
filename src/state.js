@@ -2,7 +2,7 @@
 // is injected as a `save(key, value)` function (defaulting to storage.js), so
 // every operation is unit-testable with a spy and no real localStorage.
 
-import { clamp, inferQueryName } from './core/format.js';
+import { clamp } from './core/format.js';
 import { loadJSON, saveJSON, loadStr } from './core/storage.js';
 
 export const KEYS = {
@@ -65,28 +65,59 @@ export function allocTabId(state) {
 
 const rnd = () => Math.random().toString(36).slice(2, 6);
 
-/** Find a saved query whose SQL matches (trimmed). */
-export function findSavedBySql(state, sql) {
-  const s = String(sql || '').trim();
-  return state.savedQueries.find((q) => q.sql.trim() === s) || null;
+/** The saved query a tab is linked to (via tab.savedId), or null. */
+export function savedForTab(state, tab) {
+  return (tab && tab.savedId && state.savedQueries.find((q) => q.id === tab.savedId)) || null;
 }
 
 /**
- * Toggle the active SQL in/out of saved queries. Returns { saved } reflecting
- * the new state, or { saved: false, noop: true } for empty SQL.
+ * Save the tab's SQL under `name`. If the tab is already linked to a saved
+ * entry, update that entry in place; otherwise create a new one (newest first)
+ * and link the tab to it. The tab's name mirrors the saved name. Returns the
+ * saved entry, or null for empty SQL/name.
  */
-export function toggleSaved(state, sql, save = saveJSON, now = Date.now()) {
-  const s = String(sql || '').trim();
-  if (!s) return { saved: false, noop: true };
-  const existing = findSavedBySql(state, s);
-  if (existing) {
-    state.savedQueries = state.savedQueries.filter((q) => q.id !== existing.id);
-    save(KEYS.saved, state.savedQueries);
-    return { saved: false };
+export function saveQuery(state, tab, name, save = saveJSON, now = Date.now()) {
+  const sql = String(tab.sql || '').trim();
+  const nm = String(name || '').trim();
+  if (!sql || !nm) return null;
+  let entry = savedForTab(state, tab);
+  if (entry) {
+    entry.name = nm;
+    entry.sql = sql;
+  } else {
+    entry = { id: 's' + now + rnd(), name: nm, sql, favorite: false };
+    state.savedQueries.unshift(entry);
+    tab.savedId = entry.id;
   }
-  state.savedQueries.unshift({ id: 's' + now + rnd(), name: inferQueryName(s), sql: s, starred: true });
+  tab.name = nm;
   save(KEYS.saved, state.savedQueries);
-  return { saved: true };
+  return entry;
+}
+
+/** Rename a saved query, keeping any linked tab's name in sync. */
+export function renameSaved(state, id, name, save = saveJSON) {
+  const nm = String(name || '').trim();
+  const entry = state.savedQueries.find((q) => q.id === id);
+  if (!entry || !nm) return;
+  entry.name = nm;
+  for (const t of state.tabs) if (t.savedId === id) t.name = nm;
+  save(KEYS.saved, state.savedQueries);
+}
+
+/** Toggle a saved query's favorite flag. */
+export function toggleFavorite(state, id, save = saveJSON) {
+  const entry = state.savedQueries.find((q) => q.id === id);
+  if (!entry) return;
+  entry.favorite = !entry.favorite;
+  save(KEYS.saved, state.savedQueries);
+}
+
+/** Saved queries with favorites first (stable within each group). */
+export function sortedSaved(state) {
+  return state.savedQueries
+    .map((q, i) => [q, i])
+    .sort((a, b) => (b[0].favorite ? 1 : 0) - (a[0].favorite ? 1 : 0) || a[1] - b[1])
+    .map(([q]) => q);
 }
 
 /** Delete a saved query by id and clear any tab pointer to it. */

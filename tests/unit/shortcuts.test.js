@@ -81,7 +81,7 @@ describe('handleKeydown', () => {
   it('⌘⇧S shares; ⌘S toggles saved', () => {
     const app = makeApp();
     expect(handleKeydown(ev({ metaKey: true, shiftKey: true, key: 'S' }), app)).toBe('share');
-    expect(handleKeydown(ev({ metaKey: true, key: 's' }), app)).toBe('toggleSaved');
+    expect(handleKeydown(ev({ metaKey: true, key: 's' }), app)).toBe('save');
     const out = makeApp({ isSignedIn: () => false });
     expect(handleKeydown(ev({ metaKey: true, shiftKey: true, key: 's' }), out)).toBeNull();
     expect(handleKeydown(ev({ metaKey: true, key: 's' }), out)).toBeNull();
