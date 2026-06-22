@@ -169,6 +169,22 @@ and the bootstrap — is held at **100/100/100/100** (statements / branches /
 functions / lines). The fetch, crypto, and storage seams are injected, so the
 suite needs no mocking libraries.
 
+### End-to-end (real browser)
+
+happy-dom has no real layout or scrollbars, so render-layer bugs (e.g. the
+editor highlight drifting behind the selection when a scrollbar shrinks the
+textarea's client box) can't be caught by the unit suite. A small Playwright
+harness mounts the real `src/` modules in Chromium for those cases.
+
+```bash
+npx playwright install chromium   # once per machine
+npm run test:e2e
+```
+
+The harness (`tests/e2e/`) serves the repo over HTTP and imports the actual
+source as native ESM — no bundling, always current. It is **not** part of
+`npm test` or the coverage gate.
+
 ## License
 
 Apache-2.0.

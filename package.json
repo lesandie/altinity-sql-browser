@@ -9,9 +9,11 @@
     "build": "node build/build.mjs",
     "test": "vitest run --coverage --config tests/vitest.config.ts",
     "test:watch": "vitest --config tests/vitest.config.ts",
+    "test:e2e": "playwright test",
     "dev": "node build/build.mjs && python3 -m http.server -d dist 8900"
   },
   "devDependencies": {
+    "@playwright/test": "^1.48.0",
     "@vitest/coverage-v8": "^2.1.8",
     "esbuild": "^0.21.5",
     "happy-dom": "^15.11.0",
