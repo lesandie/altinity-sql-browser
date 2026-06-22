@@ -122,6 +122,21 @@ describe('handleKeydown', () => {
     expect(box.ownerDocument.defaultView.getSelection().toString()).toBe('a\tb\nc\td');
   });
 
+  it('⌘A selects the cell-detail drawer text (and wins over the pane behind it)', () => {
+    const app = makeApp();
+    const pane = document.createElement('div');
+    pane.className = 'raw-text-view';
+    pane.textContent = 'pane text';
+    document.body.appendChild(pane);
+    const pre = document.createElement('pre');
+    pre.className = 'cd-pre';
+    pre.textContent = '{"version":1}';
+    document.body.appendChild(pre);
+    const e = ev({ metaKey: true, key: 'a', target: document.body });
+    expect(handleKeydown(e, app)).toBe('selectAll');
+    expect(pre.ownerDocument.defaultView.getSelection().toString()).toBe('{"version":1}');
+  });
+
   it('⌘A while editing keeps the native select-all (editor / inputs)', () => {
     const app = makeApp();
     document.body.appendChild(document.createElement('div')).className = 'raw-text-view';

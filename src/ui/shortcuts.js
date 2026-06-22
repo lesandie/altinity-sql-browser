@@ -87,15 +87,17 @@ export function handleKeydown(e, app) {
     return 'save';
   }
   if (mod && e.key.toLowerCase() === 'a') {
-    // When a raw result pane (TSV / JSON output) is on screen and the user isn't
-    // typing, ⌘/Ctrl+A selects just that text so it can be copied — not the whole
-    // page. Keyed off "not editing + pane present" rather than pane focus, because
+    // When a selectable text pane is on screen and the user isn't typing,
+    // ⌘/Ctrl+A selects just that text so it can be copied — not the whole page.
+    // Keyed off "not editing + pane present" rather than pane focus, because
     // macOS WebKit doesn't focus a tabindex <div> on click (so e.target stays
     // <body>). A focused editor/input keeps the native select-all (whole query).
+    // The cell-detail drawer (.cd-pre) is a modal overlay — when open it wins
+    // over the result pane behind it, so select all of *its* text.
     const t = e.target;
     if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT' || t.isContentEditable)) return null;
     const doc = (t && t.ownerDocument) || document;
-    const box = doc.querySelector('.raw-text-view, .json-view');
+    const box = doc.querySelector('.cd-pre') || doc.querySelector('.raw-text-view, .json-view');
     if (!box) return null;
     e.preventDefault();
     box.ownerDocument.defaultView.getSelection().selectAllChildren(box);
