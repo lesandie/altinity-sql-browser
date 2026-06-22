@@ -37,13 +37,21 @@ describe('mountEditor', () => {
     expect(app.actions.rerenderTabs).toHaveBeenCalled();
     expect(app.actions.updateSaveBtn).toHaveBeenCalled();
   });
-  it('scroll syncs pre + gutter to the textarea', () => {
+  it('scroll syncs pre + gutter to the textarea on both axes', () => {
     const { app, ta } = mount();
     ta.scrollTop = 12;
     ta.scrollLeft = 4;
     ta.dispatchEvent(new Event('scroll'));
     expect(app.dom.editorPre.scrollTop).toBe(12);
+    expect(app.dom.editorPre.scrollLeft).toBe(4); // horizontal sync (long lines)
     expect(app.dom.editorGutter.scrollTop).toBe(12);
+    // NOTE: the real-world misalignment fixed alongside this was a render-layer
+    // bug — the textarea's own scrollbar shrank its clientHeight, so the pre
+    // (overflow:hidden, no scrollbar) couldn't scroll as far and the highlight
+    // clamped behind the selection. The fix is CSS (hide the textarea
+    // scrollbars so both client boxes match); happy-dom has no scrollbar layout,
+    // so that part is verified in a real browser, not here. This guards the
+    // sync wiring both layers depend on.
   });
   it('Tab key inserts two spaces at the cursor', () => {
     const { ta } = mount();

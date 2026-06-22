@@ -672,7 +672,15 @@ body {
   white-space: pre;
   overflow: auto;
   tab-size: 2;
+  /* Hide the textarea's own scrollbars. A long line gives the textarea a
+     horizontal scrollbar that eats ~10px of its clientHeight, so its max
+     vertical scrollTop grew larger than the highlight <pre>'s (overflow:hidden,
+     no scrollbar). Scrolling to the bottom then clamped pre.scrollTop below
+     ta.scrollTop and the selection drifted off the painted glyphs. Hiding the
+     scrollbars keeps both client boxes equal so the layers scroll in lockstep. */
+  scrollbar-width: none; /* Firefox */
 }
+.sql-textarea::-webkit-scrollbar { display: none; } /* WebKit/Blink */
 .sql-keyword { color: #C586C0; font-weight: 500; }
 [data-theme='light'] .sql-keyword { color: #AF00DB; }
 .sql-func { color: #DCDCAA; }
