@@ -546,6 +546,10 @@ body {
   white-space: nowrap; transition: background .12s, color .12s;
 }
 .chart-toggle:hover { background: var(--bg-hover); color: var(--fg); }
+.chart-cap-note {
+  margin-left: auto; font-family: var(--mono);
+  font-size: 10.5px; color: var(--fg-faint); white-space: nowrap;
+}
 /* The canvas fills the remaining space; Chart.js is responsive within it. */
 .chart-canvas-wrap { flex: 1; min-height: 0; position: relative; padding: 12px 14px; }
 .chart-empty {

@@ -7,7 +7,7 @@ import { Icon } from './icons.js';
 import { formatRows, formatBytes, isNumericType } from '../core/format.js';
 import { looksLikeHtml, prettyValue } from '../core/cell.js';
 import { sortRows } from '../core/sort.js';
-import { autoChart, schemaKey, chartFieldOptions, chartColors, chartJsConfig } from '../core/chart-data.js';
+import { autoChart, schemaKey, chartFieldOptions, chartColors, chartJsConfig, CHART_ROW_CAP } from '../core/chart-data.js';
 
 const VIS_CAP = 5000;
 const MIN_COL = 48; // px floor for a resized column
@@ -360,6 +360,12 @@ export function renderChart(app, r) {
       cfg.series = v === '' ? null : Number(v);
       rerender();
     }));
+  }
+  // The chart plots at most CHART_ROW_CAP points; say so when the result is
+  // bigger (the table still shows everything) — no silent truncation.
+  if (r.rows.length > CHART_ROW_CAP) {
+    bar.appendChild(h('span', { class: 'chart-cap-note' },
+      'first ' + CHART_ROW_CAP + ' of ' + formatRows(r.rows.length) + ' rows'));
   }
 
   const canvas = document.createElement('canvas');

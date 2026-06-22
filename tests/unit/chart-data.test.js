@@ -95,6 +95,17 @@ describe('chartFieldOptions', () => {
     const f = chartFieldOptions(cols, { type: 'hbar', x: 0, series: null });
     expect(f.multiActive).toBe(false);
   });
+  it('"All measures" excludes ordinal buckets and the current X column', () => {
+    const c = [{ name: 'year', type: 'UInt16' }, { name: 'requests', type: 'UInt64' }, { name: 'users', type: 'UInt64' }];
+    // year is an ordinal X; it stays pickable as Y but is not an "All measures" target.
+    const onYear = chartFieldOptions(c, { type: 'bar', x: 0, y: [1], series: null });
+    expect(onYear.yOptions.map((o) => o.label)).toEqual(['year', 'requests', 'users']);
+    expect(onYear.allMeasures).toEqual([1, 2]);
+    // when X is itself a measure, it's excluded from allMeasures (and the toggle hides at <2 left).
+    const onMeasure = chartFieldOptions(c, { type: 'bar', x: 1, y: [2], series: null });
+    expect(onMeasure.allMeasures).toEqual([2]);
+    expect(onMeasure.showMulti).toBe(false);
+  });
 });
 
 describe('chartNumFmt', () => {

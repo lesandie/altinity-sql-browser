@@ -4,14 +4,17 @@
 // pivot/scale layer is unit-testable at 100% and the DOM glue in
 // `ui/results.js` stays a thin wrapper around `new Chart(canvas, config)`.
 
-const NUM_RE = /^(U?Int|Float|Decimal)/;
+import { isNumericType } from './format.js';
+
 const TIME_RE = /^(Date|DateTime)/;
 // Numeric columns whose *name* reads like a calendar bucket (year, month, …)
 // are ordinal, not free measures — a `GROUP BY toYear(...)` is an X axis.
 const ORDINAL_RE = /^(year|quarter|month|week|day|dayofweek|dow|hour|minute)/i;
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}/;
 
-const CHART_ROW_CAP = 500; // plots past this get unreadable; table stays full
+// Plots past this get unreadable, so the chart shows the first N (the table
+// stays full). Exported so the renderer can surface the truncation to the user.
+export const CHART_ROW_CAP = 500;
 
 /** Strip `Nullable(...)` / `LowCardinality(...)` wrappers down to the base type. */
 export function chartStripType(type) {
@@ -28,7 +31,8 @@ export function chartStripType(type) {
 export function chartRole(col) {
   const t = chartStripType(col && col.type);
   if (TIME_RE.test(t)) return 'time';
-  if (NUM_RE.test(t)) return ORDINAL_RE.test((col && col.name) || '') ? 'ordinal' : 'measure';
+  // Wrappers already stripped, so reuse the table's numeric test on the base type.
+  if (isNumericType(t)) return ORDINAL_RE.test((col && col.name) || '') ? 'ordinal' : 'measure';
   return 'category';
 }
 
@@ -74,28 +78,33 @@ export const CHART_TYPES = [
  */
 export function chartFieldOptions(columns, cfg) {
   const opt = (i) => ({ value: String(i), label: columns[i].name });
-  const numericIdx = columns.map((c, i) => i).filter((i) => {
-    const r = chartRole(columns[i]);
-    return r === 'measure' || r === 'ordinal';
-  });
-  const catIdx = columns.map((c, i) => i).filter((i) => chartRole(columns[i]) !== 'measure');
-  const xOptions = columns.map((c, i) => opt(i));
-  const yOptions = numericIdx.map(opt);
+  const roleOf = (i) => chartRole(columns[i]);
+  // Y is pickable from any number (measures + ordinal buckets); but the
+  // "All measures" bulk toggle plots only true measures, never the X column —
+  // so it can't end up charting an ordinal axis against itself.
+  const numericIdx = columns.map((c, i) => i).filter((i) => roleOf(i) === 'measure' || roleOf(i) === 'ordinal');
+  const catIdx = columns.map((c, i) => i).filter((i) => roleOf(i) !== 'measure');
+  const allMeasures = columns.map((c, i) => i).filter((i) => roleOf(i) === 'measure' && i !== cfg.x);
   const seriesOptions = [{ value: '', label: 'None' }, ...catIdx.filter((i) => i !== cfg.x).map(opt)];
   const isPie = cfg.type === 'pie';
   return {
     typeOptions: CHART_TYPES,
-    xOptions,
-    yOptions,
+    xOptions: columns.map((c, i) => opt(i)),
+    yOptions: numericIdx.map(opt),
     seriesOptions,
     showSeries: !isPie && seriesOptions.length > 1,
-    showMulti: !isPie && yOptions.length > 1 && cfg.series == null,
+    showMulti: !isPie && allMeasures.length > 1 && cfg.series == null,
     multiActive: (cfg.y || []).length > 1,
-    allMeasures: yOptions.map((o) => Number(o.value)),
+    allMeasures,
   };
 }
 
-/** Humanize a numeric tick/value the way the table does (M/K suffixes, 2dp). */
+/**
+ * Humanize a numeric axis tick/value (M/K suffixes, 2dp). Deliberately separate
+ * from format.js:formatRows — axis values can be fractional and carry one
+ * decimal of suffix precision, whereas formatRows targets integer row counts.
+ * Same magnitude can therefore read slightly differently on an axis vs a count.
+ */
 export function chartNumFmt(v) {
   if (typeof v !== 'number' || !isFinite(v)) return String(v);
   const a = Math.abs(v);
