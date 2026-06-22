@@ -48,12 +48,12 @@ describe('renderLogin — SSO section', () => {
     expect(app.root.querySelector('.login-divider').style.display).toBe('none');
     expect(app.root.querySelector('.login-creds')).not.toBeNull();
   });
-  it('one IdP → a single "Continue with SSO" button + divider shown', async () => {
+  it('one IdP → a single IdP-labelled button + divider shown', async () => {
     const app = appWith({ loadIdps: async () => ({ idps: [{ id: 'g', label: 'Google' }], basicLogin: true }) });
     renderLogin(app);
     await tick();
     const btns = [...app.root.querySelectorAll('.login-sso .login-btn')];
-    expect(btns.map((b) => b.textContent)).toEqual(['Continue with SSO']);
+    expect(btns.map((b) => b.textContent)).toEqual(['Continue with Google']);
     expect(app.root.querySelector('.login-divider').style.display).toBe('');
     expect(app.root.querySelector('.login-sso-note').textContent).toContain('Authenticates on');
   });
@@ -77,6 +77,39 @@ describe('renderLogin — SSO section', () => {
     await tick();
     expect(app.root.querySelector('.login-creds')).not.toBeNull();
     expect(app.root.querySelectorAll('.login-sso .login-btn')).toHaveLength(0);
+  });
+});
+
+describe('renderLogin — subtitle/footer adapt to available methods', () => {
+  const sub = (app) => app.root.querySelector('.login-sub').textContent;
+  const ver = (app) => app.root.querySelector('.login-foot-ver').textContent;
+  const render = async (over) => { const app = appWith(over); renderLogin(app); await tick(); return app; };
+
+  it('SSO + credentials → both mentioned', async () => {
+    const app = await render({ loadIdps: async () => ({ idps: [{ id: 'g', label: 'Google' }], basicLogin: true }) });
+    expect(sub(app)).toMatch(/single sign-on.*credentials/);
+    expect(ver(app)).toBe('OAuth · credentials');
+  });
+  it('SSO only (basic_login:false) → no credentials phrase', async () => {
+    const app = await render({ loadIdps: async () => ({ idps: [{ id: 'g', label: 'Google' }], basicLogin: false }) });
+    expect(sub(app)).toBe('Use single sign-on for this server.');
+    expect(sub(app)).not.toMatch(/credentials/);
+    expect(ver(app)).toBe('OAuth');
+  });
+  it('credentials only (no IdPs) → no SSO phrase', async () => {
+    const app = await render({ loadIdps: async () => ({ idps: [], basicLogin: true }) });
+    expect(sub(app)).toMatch(/username and password/);
+    expect(ver(app)).toBe('credentials');
+  });
+  it('neither method → explains nothing is configured', async () => {
+    const app = await render({ loadIdps: async () => ({ idps: [], basicLogin: false }) });
+    expect(sub(app)).toMatch(/No sign-in method/);
+    expect(ver(app)).toBe('—');
+  });
+  it('config load failure → credentials-only chrome', async () => {
+    const app = await render({ loadIdps: async () => { throw new Error('x'); } });
+    expect(sub(app)).toMatch(/username and password/);
+    expect(ver(app)).toBe('credentials');
   });
 });
 

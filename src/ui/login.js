@@ -93,6 +93,11 @@ export function renderLogin(app, errorMsg) {
       h('span', { style: { flex: '1' } }),
       targetAsEl));
 
+  // Subtitle + footer tag adapt to which methods are actually available
+  // (filled in by applyChrome once the IdP list / basic_login flag resolve).
+  const subEl = h('div', { class: 'login-sub' }, 'Sign in to continue.');
+  const footVer = h('span', { class: 'mono login-foot-ver' }, 'OAuth · credentials');
+
   const card = h('div', { class: 'login-card login-card-wide' },
     h('div', { class: 'login-brand' },
       h('div', { class: 'login-logo' }, 'A'),
@@ -100,7 +105,7 @@ export function renderLogin(app, errorMsg) {
         h('div', { class: 'login-brand-name' }, 'Altinity SQL Browser'),
         h('div', { class: 'login-brand-sub mono' }, 'ClickHouse query console'))),
     h('div', { class: 'login-h1' }, 'Sign in'),
-    h('div', { class: 'login-sub' }, 'Use single sign-on for this server, or connect with ClickHouse credentials.'),
+    subEl,
     ssoSection,
     credSection,
     errorMsg ? h('div', { class: 'login-error' }, errorMsg) : null,
@@ -110,7 +115,7 @@ export function renderLogin(app, errorMsg) {
         target: '_blank', rel: 'noopener noreferrer',
       }, Icon.github(), h('span', null, 'Source')),
       h('span', { style: { flex: '1' } }),
-      h('span', { class: 'mono login-foot-ver' }, 'OAuth · credentials')));
+      footVer));
 
   app.root.replaceChildren(h('div', { class: 'login-screen' }, card));
   update();
@@ -119,11 +124,24 @@ export function renderLogin(app, errorMsg) {
   // sections are shown. On failure keep credentials visible (fail-open — OAuth
   // can't work without config anyway) and show no SSO.
   app.loadIdps().then(({ idps, basicLogin }) => {
-    if (basicLogin === false) credSection.remove();
+    const credsShown = basicLogin !== false;
+    if (!credsShown) credSection.remove();
     populateSso(idps);
-    divider.style.display = (ssoBtns.length && basicLogin !== false) ? '' : 'none';
+    applyChrome(ssoBtns.length > 0, credsShown);
     update();
-  }).catch(() => { /* no config → credentials only */ });
+  }).catch(() => applyChrome(false, true)); // no config → credentials only
+
+  // Reconcile subtitle, footer tag, and the SSO/credentials divider with which
+  // sign-in methods are actually offered.
+  function applyChrome(hasSso, credsShown) {
+    divider.style.display = (hasSso && credsShown) ? '' : 'none';
+    subEl.textContent =
+      hasSso && credsShown ? 'Use single sign-on for this server, or connect with ClickHouse credentials.'
+        : hasSso ? 'Use single sign-on for this server.'
+          : credsShown ? 'Connect with your ClickHouse username and password.'
+            : 'No sign-in method is configured — check config.json.';
+    footVer.textContent = [hasSso && 'OAuth', credsShown && 'credentials'].filter(Boolean).join(' · ') || '—';
+  }
 
   function populateSso(idps) {
     ssoBtns = [];
@@ -134,9 +152,9 @@ export function renderLogin(app, errorMsg) {
       ssoBtns.push(b);
       return b;
     };
-    const btns = idps.length === 1
-      ? [mk(idps[0].id, 'Continue with SSO')]
-      : idps.map((i) => mk(i.id, 'Continue with ' + i.label));
+    // Always label the button with the IdP — "Continue with Google" reads
+    // better than a generic "SSO", and disambiguates when several are configured.
+    const btns = idps.map((i) => mk(i.id, 'Continue with ' + i.label));
     ssoSection.replaceChildren(
       ...btns,
       h('div', { class: 'login-sso-note' },
