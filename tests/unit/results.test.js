@@ -300,34 +300,98 @@ describe('renderJson', () => {
   });
 });
 
+// A result with two measures + two category columns, for multi-series/group-by.
+function chartResult() {
+  const r = newResult('Table');
+  r.columns = [
+    { name: 'carrier', type: 'String' },
+    { name: 'region', type: 'String' },
+    { name: 'flights', type: 'UInt64' },
+    { name: 'delay', type: 'Float64' },
+  ];
+  r.rows = [['B6', 'E', '10', '5.5'], ['AA', 'W', '20', '6.5']];
+  r.progress = { rows: 2, bytes: 100, elapsed_ns: 5e6 };
+  return r;
+}
+const fieldSel = (el, label) => [...el.querySelectorAll('.chart-field')]
+  .find((f) => f.querySelector('.chart-field-label').textContent === label).querySelector('select');
+const change = (sel, value) => { sel.value = value; sel.dispatchEvent(new Event('change', { bubbles: true })); };
+
 describe('renderChart', () => {
-  it('says so when no numeric column exists', () => {
+  it('shows a not-chartable hint when no measure exists', () => {
     const r = newResult('Table');
     r.columns = [{ name: 'a', type: 'String' }];
     r.rows = [['x']];
-    expect(renderChart(r).textContent).toContain('No numeric columns to chart.');
+    const app = appWithResult(r, { resultView: 'chart' });
+    expect(renderChart(app, r).textContent).toContain('aren’t chartable');
   });
-  it('draws bars for numeric data', () => {
-    const r = tableResult();
-    const el = renderChart(r);
-    expect(el.querySelectorAll('rect').length).toBeGreaterThan(0);
-    expect(el.querySelector('.chart-controls').textContent).toContain('X:');
+  it('shows a "renders when complete" hint while the query is still running', () => {
+    const app = appWithResult(tableResult(), { resultView: 'chart', running: true });
+    expect(renderChart(app, app.activeTab().result).textContent).toContain('renders when the query completes');
   });
-  it('handles an all-zero series (max 0)', () => {
-    const r = newResult('Table');
-    r.columns = [{ name: 'k', type: 'String' }, { name: 'v', type: 'UInt64' }];
-    r.rows = [['a', '0'], ['b', '0']];
-    const el = renderChart(r);
-    expect(el.querySelectorAll('rect')).toHaveLength(2);
+  it('builds a config bar and instantiates Chart.js on a canvas (categorical → hbar default)', () => {
+    const app = appWithResult(tableResult(), { resultView: 'chart' });
+    renderResults(app);
+    const view = app.dom.resultsRegion.querySelector('.chart-view');
+    expect(view.querySelector('canvas')).not.toBeNull();
+    expect(app.chart).not.toBeNull();
+    expect(app.chart.config.type).toBe('bar'); // hbar maps to bar + indexAxis y
+    expect(app.chart.config.options.indexAxis).toBe('y');
+    expect(app.activeTab().chartCfg).toMatchObject({ type: 'hbar', x: 1, y: [0] });
   });
-  it('samples + truncates long x labels for wide series', () => {
-    const r = newResult('Table');
-    r.columns = [{ name: 'k', type: 'String' }, { name: 'v', type: 'UInt64' }];
-    r.rows = Array.from({ length: 30 }, (_, i) => ['a_very_long_label_' + i, String(i)]);
-    const el = renderChart(r);
-    // fewer text labels than rows (sampled every Nth) — y-axis adds 2 texts
-    expect(el.querySelectorAll('text').length).toBeLessThan(30);
-    // long labels are truncated with an ellipsis
-    expect([...el.querySelectorAll('text')].some((t) => t.textContent.endsWith('…'))).toBe(true);
+  it('Type select switches renderer; non-pie keeps series, pie resets it to single-measure', () => {
+    const app = appWithResult(chartResult(), { resultView: 'chart' });
+    renderResults(app);
+    // group-by first so we can prove pie clears it
+    change(fieldSel(app.dom.resultsRegion, 'Series'), '1');
+    expect(app.activeTab().chartCfg.series).toBe(1);
+    change(fieldSel(app.dom.resultsRegion, 'Type'), 'line'); // non-pie branch
+    expect(app.activeTab().chartCfg.type).toBe('line');
+    change(fieldSel(app.dom.resultsRegion, 'Type'), 'pie'); // pie branch resets series
+    expect(app.activeTab().chartCfg).toMatchObject({ type: 'pie', series: null });
+    expect(fieldSel(app.dom.resultsRegion, 'Type')).not.toBeNull();
+    expect([...app.dom.resultsRegion.querySelectorAll('.chart-field-label')].map((s) => s.textContent))
+      .not.toContain('Series'); // series control hidden for pie
+  });
+  it('X and Y selects update the per-tab config', () => {
+    const app = appWithResult(chartResult(), { resultView: 'chart' });
+    renderResults(app);
+    change(fieldSel(app.dom.resultsRegion, 'X'), '1');
+    expect(app.activeTab().chartCfg.x).toBe(1);
+    change(fieldSel(app.dom.resultsRegion, 'Y'), '3');
+    expect(app.activeTab().chartCfg.y).toEqual([3]);
+  });
+  it('"All measures" toggles between single and multi-series', () => {
+    const app = appWithResult(chartResult(), { resultView: 'chart' });
+    renderResults(app);
+    const btn = () => [...app.dom.resultsRegion.querySelectorAll('.chart-toggle')][0];
+    expect(btn().textContent).toBe('All measures');
+    click(btn());
+    expect(app.activeTab().chartCfg.y).toEqual([2, 3]);
+    expect(app.chart.config.data.datasets).toHaveLength(2);
+    expect(btn().textContent).toBe('Single series');
+    click(btn());
+    expect(app.activeTab().chartCfg.y).toEqual([2]);
+  });
+  it('Series select sets and clears a group-by dimension', () => {
+    const app = appWithResult(chartResult(), { resultView: 'chart' });
+    renderResults(app);
+    change(fieldSel(app.dom.resultsRegion, 'Series'), '1');
+    expect(app.activeTab().chartCfg.series).toBe(1);
+    change(fieldSel(app.dom.resultsRegion, 'Series'), '');
+    expect(app.activeTab().chartCfg.series).toBeNull();
+  });
+  it('destroys the previous Chart instance on re-render, and re-derives config on a new schema', () => {
+    const app = appWithResult(chartResult(), { resultView: 'chart' });
+    renderResults(app);
+    const first = app.chart;
+    const cfg = app.activeTab().chartCfg;
+    renderResults(app); // stable schema → keep config, swap chart instance
+    expect(first.destroyed).toBe(true);
+    expect(app.chart).not.toBe(first);
+    expect(app.activeTab().chartCfg).toBe(cfg);
+    app.activeTab().result = tableResult(); // different schema → re-derive
+    renderResults(app);
+    expect(app.activeTab().chartCfg).not.toBe(cfg);
   });
 });

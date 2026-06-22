@@ -17,9 +17,10 @@ export const KEYS = {
   history: 'asb:history',
 };
 
-/** A blank query tab. */
+/** A blank query tab. `chartCfg`/`chartKey` hold the per-tab chart config and
+ * the schema signature it was derived for (re-derived when the schema changes). */
 export function newTabObj(id) {
-  return { id, name: 'Untitled', sql: '', dirty: false, result: null, savedId: null };
+  return { id, name: 'Untitled', sql: '', dirty: false, result: null, savedId: null, chartCfg: null, chartKey: null };
 }
 
 /**

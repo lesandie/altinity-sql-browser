@@ -46,6 +46,10 @@ export function createApp(env = {}) {
     doc,
     token: ss.getItem('oauth_id_token'),
     refreshToken: ss.getItem('oauth_refresh_token'),
+    // Charting seam: the Chart.js constructor (injected so tests stub it) and a
+    // CSS-custom-property reader (canvas needs real colors, not `var(--x)`).
+    Chart: env.Chart || win.Chart,
+    cssVar: env.cssVar || ((name) => win.getComputedStyle(doc.documentElement).getPropertyValue(name)),
   };
 
   // Two ways to be signed in: OAuth (a JWT bearer, the default) or 'basic' —
