@@ -84,8 +84,17 @@ describe('loadConfigDoc', () => {
   it('throws when an IdP lacks issuer/client_id', async () => {
     await expect(docOf({ issuer: 'x' })).rejects.toThrow('missing issuer or client_id');
   });
-  it('throws when the idps list is empty', async () => {
-    await expect(docOf({ idps: [] })).rejects.toThrow('no IdPs');
+  it('returns no IdPs for an empty list (credentials-only deployment)', async () => {
+    expect(await docOf({ idps: [] })).toEqual([]);
+  });
+  it('returns no IdPs for an IdP-less config (no idps, no issuer)', async () => {
+    expect(await docOf({ basic_login: true })).toEqual([]);
+  });
+  it('defaults basicLogin to true and honours an explicit false', async () => {
+    const load = (body) => loadConfigDoc(fetcher([[/config\.json$/, resp(true, body)]]), '/sql');
+    expect((await load({ idps: [] })).basicLogin).toBe(true);
+    expect((await load({ basic_login: false, idps: [] })).basicLogin).toBe(false);
+    expect((await load({ issuer: 'https://i', client_id: 'c' })).basicLogin).toBe(true);
   });
 });
 

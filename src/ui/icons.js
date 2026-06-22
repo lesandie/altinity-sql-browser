@@ -62,6 +62,12 @@ export const Icon = {
   download: () => iconEl('<path d="M6 1.5v6.5M3.5 5.5L6 8l2.5-2.5"/><path d="M2 10h8"/>', 12, 12),
   upload: () => iconEl('<path d="M6 8.5V2M3.5 4.5L6 2l2.5 2.5"/><path d="M2 10h8"/>', 12, 12),
   logout: () => iconEl('<path d="M5.5 2.5H3a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1h2.5"/><path d="M7 8.5L9.5 6 7 3.5M9.5 6H4.5"/>', 12, 12),
+  // Login-screen glyphs (SSO shield, password eye, host server, connect arrow).
+  shield: () => iconEl('<path d="M7 1.2l4.5 1.6v3.1c0 2.7-1.9 5-4.5 5.8-2.6-.8-4.5-3.1-4.5-5.8V2.8z"/><path d="M5 6.8l1.4 1.4 2.6-2.7"/>', 14, 14, 1.4),
+  eye: () => iconEl('<path d="M1.3 7S3.3 3 7 3s5.7 4 5.7 4-2 4-5.7 4S1.3 7 1.3 7z"/><circle cx="7" cy="7" r="1.7"/>', 14, 14, 1.4),
+  eyeOff: () => iconEl('<path d="M5.4 3.3A5.6 5.6 0 0 1 7 3c3.7 0 5.7 4 5.7 4a9.6 9.6 0 0 1-1.7 2.1M8.6 8.6A1.7 1.7 0 0 1 5.4 5.4M1.3 7S3.3 3 7 3m-5.7 4a9.6 9.6 0 0 0 1.7 2.1"/><path d="M1.8 1.8l10.4 10.4"/>', 14, 14, 1.4),
+  server: () => iconEl('<rect x="1.8" y="2" width="8.4" height="3.4" rx="1"/><rect x="1.8" y="6.6" width="8.4" height="3.4" rx="1"/><path d="M3.8 3.7h.01M3.8 8.3h.01"/>', 12, 12, 1.3),
+  arrow: () => svg('M2 6h7.5M7 3.5L9.5 6 7 8.5', 12, 12, { stroke: 1.6 }),
   // Same glyph as the JSON view tab so the Format button's { } matches it.
   braces: () => svg('M4 1.5C2.5 1.5 2.5 3 2.5 4S2.5 5 1.5 6c1 1 1 2 1 2s0 1.5 1.5 1.5M8 1.5c1.5 0 1.5 1.5 1.5 2.5s0 1 1 2c-1 1-1 2-1 2s0 1.5-1.5 1.5', 12, 12),
   bookmark: () => iconEl('<path d="M3.5 1.8h5a.6.6 0 0 1 .6.6v8.2l-3.1-2-3.1 2V2.4a.6.6 0 0 1 .6-.6z"/>', 12, 12, 1.3),

@@ -107,6 +107,38 @@ still accepted — it's treated as a one-IdP list. ClickHouse needs a matching
 `<token_processor>` per issuer; it validates each inbound JWT against whichever
 one matches the token's `iss`, so no extra CH wiring is required to offer several.
 
+### Credentials login (username / password)
+
+Alongside SSO, the sign-in screen offers a **ClickHouse username + password**
+path (HTTP Basic). It is shown by default; set top-level `"basic_login": false`
+in `config.json` to hide it and force SSO-only. A deployment with no OAuth at all
+can ship a credentials-only config (no `idps`):
+
+```json
+{ "basic_login": true }
+```
+
+Credentials authenticate against the **serving host** by default. The login
+screen's **Advanced → Server address** field can aim the credential path at a
+**different** `host:port` (a bare host defaults to `https://…:8443`); SSO always
+stays on the serving host. The same-origin path needs no extra setup, but a
+**cross-origin** target has two requirements:
+
+- **The SPA's own CSP.** `deploy/http_handlers.xml` sets `connect-src 'self'`
+  (+ the IdP origins). The browser will block a query POST to any other origin
+  until you add that origin to `connect-src` — otherwise the request never
+  leaves the page.
+- **The target ClickHouse must allow CORS** for this origin: answer the
+  `Authorization`-header preflight (`OPTIONS`) and return
+  `Access-Control-Allow-Origin`. ClickHouse's `add_http_cors_header` covers the
+  actual request; the preflight may need handler/proxy configuration on that
+  server.
+
+The password is held in `sessionStorage` for the tab session (same lifetime as
+the OAuth token) and sent as `Authorization: Basic base64(user:password)`. A
+wrong password is surfaced on the login screen — the connect probe runs a
+`SELECT 1` before entering the workbench.
+
 ### Security headers
 
 `deploy/http_handlers.xml` sends a strict **Content-Security-Policy** plus

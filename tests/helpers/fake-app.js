@@ -24,6 +24,7 @@ export function makeApp(over = {}) {
     signOut: vi.fn(),
     loadVersion: vi.fn(),
     loadSchema: vi.fn(),
+    loadIdps: async () => ({ idps: [], basicLogin: true }),
     dom: {
       qtabsInner: document.createElement('div'),
       schemaList: document.createElement('div'),
@@ -40,6 +41,7 @@ export function makeApp(over = {}) {
       closeTab: vi.fn(),
       loadIntoNewTab: vi.fn(),
       login: vi.fn(),
+      connect: vi.fn(),
       share: vi.fn(),
       copyResult: vi.fn(),
       exportResult: vi.fn(),
