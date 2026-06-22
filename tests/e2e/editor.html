@@ -1,0 +1,36 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>editor harness</title>
+  <!-- the real stylesheet, so .sql-textarea / .sql-pre lay out exactly as shipped -->
+  <link rel="stylesheet" href="/src/styles.css" />
+  <style>
+    html, body { margin: 0; background: #111; }
+    /* .sql-editor is height/width:100%, so the mount host needs a fixed box. */
+    #host { width: 680px; height: 340px; }
+  </style>
+</head>
+<body data-theme="dark">
+  <div id="host"></div>
+  <!-- Mount the real editor module with a minimal stub controller. No bundling:
+       the browser resolves the /src ESM graph directly. -->
+  <script type="module">
+    import { mountEditor } from '/src/ui/editor.js';
+    import { createState } from '/src/state.js';
+
+    const state = createState({ loadStr: (k, d) => d, loadJSON: (k, d) => d });
+    const app = { state, dom: {}, actions: { rerenderTabs() {}, updateSaveBtn() {} } };
+    window.__app = app;
+    mountEditor(app, document.getElementById('host'));
+
+    // Set editor content the way typing/replace does (drives paint()).
+    window.__setSql = (sql) => {
+      const ta = app.dom.editorTextarea;
+      ta.value = sql;
+      ta.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    window.__ready = true;
+  </script>
+</body>
+</html>
