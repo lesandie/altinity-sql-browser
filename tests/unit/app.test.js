@@ -432,6 +432,93 @@ describe('auth flows', () => {
   });
 });
 
+describe('credentials (basic) sign-in', () => {
+  const creds = btoa('demo:demo');
+  const basicSession = { ch_basic_auth: creds, ch_basic_user: 'demo', ch_basic_origin: 'https://gh.example:8443' };
+
+  it('restores a basic session from sessionStorage', () => {
+    const app = createApp(env({ sessionStorage: memSession(basicSession) }));
+    expect(app.authMode).toBe('basic');
+    expect(app.isSignedIn()).toBe(true);
+    expect(app.email()).toBe('demo');
+    expect(app.host()).toBe('gh.example:8443');
+    expect(app.chCtx.origin).toBe('https://gh.example:8443');
+  });
+  it('falls back to the serving origin when no stored target is present', () => {
+    const app = createApp(env({ sessionStorage: memSession({ ch_basic_auth: creds, ch_basic_user: 'demo' }) }));
+    expect(app.chCtx.origin).toBe('https://ch.example');
+  });
+  it('host falls back to "clickhouse" for an unparseable stored origin', () => {
+    const app = createApp(env({ sessionStorage: memSession({ ...basicSession, ch_basic_origin: 'not a url' }) }));
+    expect(app.host()).toBe('clickhouse');
+  });
+  it('basic ctx seams: getToken=creds, authHeader=Basic, refresh=false, ensureConfig=no-op', async () => {
+    const app = createApp(env({ sessionStorage: memSession(basicSession) }));
+    expect(await app.chCtx.getToken()).toBe(creds);
+    expect(app.chCtx.authHeader(creds)).toBe('Basic ' + creds);
+    expect(await app.chCtx.refresh()).toBe(false);
+    expect(await app.ensureConfig()).toBeNull();
+  });
+  it('queries carry the Basic header to the target origin', async () => {
+    const e = env({
+      sessionStorage: memSession(basicSession),
+      fetch: makeFetch([[(u, sql) => /version\(\)/.test(sql), resp({ json: { data: [{ v: '26.3.1' }] } })]]),
+    });
+    const app = createApp(e);
+    await app.loadVersion();
+    const [url, init] = e.fetch.mock.calls[0];
+    expect(url.startsWith('https://gh.example:8443')).toBe(true);
+    expect(init.headers.Authorization).toBe('Basic ' + creds);
+  });
+  it('connect() probes SELECT 1, commits the session, renders the app (blank host → same origin)', async () => {
+    const e = env({
+      sessionStorage: memSession({}),
+      fetch: makeFetch([[(u, sql) => /SELECT 1/.test(sql), resp({ json: { data: [{ '1': 1 }] } })]]),
+    });
+    const app = createApp(e);
+    expect(app.authMode).toBe('oauth');
+    await app.actions.connect({ username: 'demo', password: 'demo', host: '' });
+    expect(app.authMode).toBe('basic');
+    expect(e.sessionStorage.getItem('ch_basic_auth')).toBe(creds);
+    expect(e.sessionStorage.getItem('ch_basic_user')).toBe('demo');
+    expect(e.sessionStorage.getItem('ch_basic_origin')).toBe('https://ch.example');
+    expect(app.chCtx.origin).toBe('https://ch.example');
+    expect(app.root.querySelector('.app-header')).not.toBeNull();
+    const probe = e.fetch.mock.calls.find(([, init]) => init && init.body === 'SELECT 1');
+    expect(probe[1].headers.Authorization).toBe('Basic ' + creds);
+  });
+  it('connect() targets a custom host via resolveTarget', async () => {
+    const e = env({
+      sessionStorage: memSession({}),
+      fetch: makeFetch([[(u, sql) => /SELECT 1/.test(sql), resp({ json: { data: [] } })]]),
+    });
+    const app = createApp(e);
+    await app.actions.connect({ username: 'u', password: 'p', host: 'other.example:9000' });
+    expect(app.chCtx.origin).toBe('https://other.example:9000');
+    expect(e.sessionStorage.getItem('ch_basic_origin')).toBe('https://other.example:9000');
+  });
+  it('connect() rejects on bad credentials without committing a session', async () => {
+    const e = env({
+      sessionStorage: memSession({}),
+      fetch: makeFetch([[(u, sql) => /SELECT 1/.test(sql), resp({ ok: false, status: 403, text: 'Code: 516. Authentication failed' })]]),
+    });
+    const app = createApp(e);
+    await expect(app.actions.connect({ username: 'demo', password: 'wrong', host: '' })).rejects.toThrow();
+    expect(app.authMode).toBe('oauth');
+    expect(e.sessionStorage.getItem('ch_basic_auth')).toBeNull();
+  });
+  it('signing out of a basic session resets mode, origin, and stored creds', () => {
+    const e = env({ sessionStorage: memSession(basicSession) });
+    const app = createApp(e);
+    app.renderApp();
+    app.signOut();
+    expect(app.authMode).toBe('oauth');
+    expect(app.chCtx.origin).toBe('https://ch.example');
+    expect(e.sessionStorage.getItem('ch_basic_auth')).toBeNull();
+    expect(app.root.querySelector('.login-screen')).not.toBeNull();
+  });
+});
+
 describe('share + star + columns', () => {
   it('share copies a link to the clipboard', async () => {
     const e = env({ window: { history: { replaceState: vi.fn() }, navigator: {} } });

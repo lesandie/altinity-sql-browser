@@ -7,7 +7,6 @@ import { createApp } from './ui/app.js';
 import { handleKeydown } from './ui/shortcuts.js';
 import { exchangeCodeForTokens, bearerFromTokens } from './net/oauth.js';
 import { decodeSqlFromHash } from './core/share.js';
-import { isTokenExpired } from './core/jwt.js';
 
 export async function bootstrap(app, env) {
   const loc = env.location;
@@ -61,10 +60,12 @@ export async function bootstrap(app, env) {
     hist.replaceState(null, '', loc.pathname + loc.search);
   }
 
-  if (app.token && !isTokenExpired(app.token, 0)) {
+  if (app.isSignedIn()) {
+    // Signed in either via a valid OAuth token or a restored basic session.
     ss.removeItem('oauth_shared_sql'); // consumed
     // Resolve config first so the header shows the real CH identity (the
     // ch_auth=basic username, not the raw email claim) on first paint.
+    // (ensureConfig is a no-op in basic mode.)
     await app.ensureConfig();
     app.renderApp();
   } else {

@@ -16,7 +16,9 @@ function fakeApp(over = {}) {
     setTokens: vi.fn(function (id) { this.token = id; }),
     renderApp: vi.fn(),
     showLogin: vi.fn(),
-    isSignedIn: vi.fn(() => false),
+    // Default mirrors the real controller: signed in iff a token is held.
+    // Tests that exercise a basic session override this directly.
+    isSignedIn() { return !!this.token; },
     ...over,
   };
 }
@@ -43,6 +45,15 @@ describe('bootstrap', () => {
     const app = fakeApp({ token: valid, isSignedIn: () => true });
     await bootstrap(app, fakeEnv());
     expect(app.renderApp).toHaveBeenCalled();
+  });
+
+  it('renders the app for a restored basic session (no token)', async () => {
+    // A credentials session has no OAuth token; isSignedIn() carries it.
+    const app = fakeApp({ token: null, isSignedIn: () => true });
+    const out = await bootstrap(app, fakeEnv());
+    expect(app.ensureConfig).toHaveBeenCalled();
+    expect(app.renderApp).toHaveBeenCalled();
+    expect(out.signedIn).toBe(true);
   });
 
   it('exchanges the OAuth code on a valid callback', async () => {

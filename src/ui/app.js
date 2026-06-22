@@ -12,6 +12,7 @@ import {
 import { saveJSON, saveStr } from '../core/storage.js';
 import { decodeJwtPayload, isTokenExpired } from '../core/jwt.js';
 import { sqlString, inferQueryName, shortVersion, userShortName } from '../core/format.js';
+import { resolveTarget } from '../core/target.js';
 import { buildExportDoc, parseImportDoc } from '../core/saved-io.js';
 import { toTSV, toCSV } from '../core/export.js';
 import { newResult, applyStreamLine } from '../core/stream.js';
@@ -47,6 +48,15 @@ export function createApp(env = {}) {
     refreshToken: ss.getItem('oauth_refresh_token'),
   };
 
+  // Two ways to be signed in: OAuth (a JWT bearer, the default) or 'basic' —
+  // a ClickHouse username/password sent as Authorization: Basic, optionally
+  // against another host. A live basic session is restored from sessionStorage
+  // (ch_basic_*), mirroring how the OAuth token is restored above.
+  app.authMode = ss.getItem('ch_basic_auth') ? 'basic' : 'oauth';
+  const basicCreds = () => ss.getItem('ch_basic_auth');
+  const basicUser = () => ss.getItem('ch_basic_user') || '';
+  const originHost = (o) => { try { return new URL(o).host; } catch { return ''; } };
+
   // config.json may list several IdPs. Fetch the doc once; resolve OIDC
   // discovery per selected IdP. The chosen IdP id is persisted so it survives
   // the OAuth redirect (like oauth_state) and drives token exchange/refresh.
@@ -69,9 +79,13 @@ export function createApp(env = {}) {
   app.savePref = (name, value) => saveStr(KEYS[name], String(value));
 
   // --- identity ----------------------------------------------------------
-  app.host = () => loc.host || 'clickhouse';
+  app.host = () => (app.authMode === 'basic'
+    ? originHost(chCtx.origin) || 'clickhouse'
+    : loc.host || 'clickhouse');
   app.activeTab = () => activeTab(app.state);
-  app.isSignedIn = () => !!app.token && !isTokenExpired(app.token, 0);
+  app.isSignedIn = () => (app.authMode === 'basic'
+    ? !!basicCreds()
+    : !!app.token && !isTokenExpired(app.token, 0));
   // The CH-facing identity for the current token — what currentUser() will be:
   // for ch_auth=basic it's the Basic username (honouring basicUserClaim); for
   // bearer it's the email the token-processor keys on. Shared by authHeader and
@@ -81,7 +95,9 @@ export function createApp(env = {}) {
       || p.email || p.preferred_username || p.sub || '';
   }
   app.chUsername = chUsername;
-  app.email = () => chUsername(decodeJwtPayload(app.token));
+  app.email = () => (app.authMode === 'basic'
+    ? basicUser()
+    : chUsername(decodeJwtPayload(app.token)));
 
   function setTokens(id, refresh) {
     app.token = id;
@@ -99,7 +115,10 @@ export function createApp(env = {}) {
     app.token = null;
     app.refreshToken = null;
     app.idpId = null;
-    ['oauth_id_token', 'oauth_refresh_token', 'oauth_verifier', 'oauth_state', 'oauth_idp'].forEach((k) => ss.removeItem(k));
+    app.authMode = 'oauth';
+    chCtx.origin = loc.origin;
+    ['oauth_id_token', 'oauth_refresh_token', 'oauth_verifier', 'oauth_state', 'oauth_idp',
+      'ch_basic_auth', 'ch_basic_user', 'ch_basic_origin'].forEach((k) => ss.removeItem(k));
   }
   app.setTokens = setTokens;
   app.clearTokens = clearTokens;
@@ -124,6 +143,9 @@ export function createApp(env = {}) {
   }
 
   async function refresh() {
+    // Basic credentials don't expire and can't be refreshed; a surviving 401
+    // means the password is wrong → authedFetch falls through to onSignedOut.
+    if (app.authMode === 'basic') return false;
     const cfg = await resolveConfig();
     const tokens = await oauth.refreshTokens(fetchFn, cfg, app.refreshToken);
     const bearer = oauth.bearerFromTokens(tokens, cfg.bearer);
@@ -133,6 +155,8 @@ export function createApp(env = {}) {
   }
 
   async function getToken() {
+    // In basic mode the stored credential is the "token" authedFetch carries.
+    if (app.authMode === 'basic') return basicCreds();
     if (!app.token) return null;
     if (!isTokenExpired(app.token)) return app.token;
     if (await refresh()) return app.token;
@@ -149,13 +173,17 @@ export function createApp(env = {}) {
   // default chain. Lets one IdP map to a CH username distinct from another's.
   app.basicUserClaim = '';
   function authHeader(token) {
+    // Basic mode: `token` is already base64(user:pass) — send it verbatim.
+    if (app.authMode === 'basic') return 'Basic ' + token;
     if (app.chAuth !== 'basic') return 'Bearer ' + token;
     const user = chUsername(decodeJwtPayload(token));
     return 'Basic ' + btoa(unescape(encodeURIComponent(user + ':' + token)));
   }
   const chCtx = {
     fetch: fetchFn,
-    origin: loc.origin,
+    // Where queries POST: the serving origin for OAuth, or the (possibly
+    // cross-origin) target chosen at credential sign-in for basic mode.
+    origin: app.authMode === 'basic' ? (ss.getItem('ch_basic_origin') || loc.origin) : loc.origin,
     getToken,
     refresh,
     authHeader,
@@ -172,6 +200,8 @@ export function createApp(env = {}) {
   // Fail-soft: if config can't be loaded we keep the current mode (bearer)
   // rather than blocking the query.
   async function ensureConfig() {
+    // Basic mode needs no OAuth config — the auth scheme is fixed.
+    if (app.authMode === 'basic') return null;
     try {
       const cfg = await resolveConfig();
       app.chAuth = cfg.chAuth;
@@ -182,6 +212,33 @@ export function createApp(env = {}) {
     }
   }
   app.ensureConfig = ensureConfig;
+
+  // --- credentials (HTTP Basic) sign-in ----------------------------------
+  // Validate a ClickHouse username/password against `host` (blank → the serving
+  // host) with a probe query, then commit the session and enter the workbench.
+  // The probe uses a throwaway ctx so a bad password surfaces CH's own reason
+  // here (rejected as a thrown Error) instead of auto-rendering the login.
+  async function connect({ username, password, host }) {
+    const user = String(username || '').trim();
+    const target = resolveTarget(host, loc.origin);
+    const creds = btoa(unescape(encodeURIComponent(user + ':' + (password || ''))));
+    const probeCtx = {
+      fetch: fetchFn,
+      origin: target,
+      getToken: async () => creds,
+      authHeader: () => 'Basic ' + creds,
+      refresh: async () => false,
+      onSignedOut: (detail) => { throw new Error(detail || 'Authentication failed'); },
+    };
+    await ch.queryJson(probeCtx, 'SELECT 1');
+    // Probe passed → commit the session and switch the live ctx to the target.
+    app.authMode = 'basic';
+    ss.setItem('ch_basic_auth', creds);
+    ss.setItem('ch_basic_user', user);
+    ss.setItem('ch_basic_origin', target);
+    chCtx.origin = target;
+    app.renderApp();
+  }
 
   // --- data loaders ------------------------------------------------------
   app.loadVersion = async () => {
@@ -557,6 +614,7 @@ export function createApp(env = {}) {
     closeTab: (id) => closeTab(app, id),
     loadIntoNewTab: (name, sql, savedId) => loadIntoNewTab(app, name, sql, savedId),
     login: (idpId) => login(idpId),
+    connect,
     share,
     copyResult,
     exportResult,

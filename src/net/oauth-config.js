@@ -47,9 +47,12 @@ function normalizeEntry(e) {
 }
 
 /**
- * Fetch config.json and normalize to `{ idps: [descriptor, ...] }`. Accepts a
- * list (`{ idps: [...] }`) or a single bare object (legacy) wrapped into one
- * entry. Throws if no usable IdP is present.
+ * Fetch config.json and normalize to `{ idps: [descriptor, ...], basicLogin }`.
+ * Accepts a list (`{ idps: [...] }`) or a single bare object (legacy) wrapped
+ * into one entry. An IdP-less config (no `idps`, no `issuer`) is valid — it
+ * describes a credentials-only deployment, so `idps` comes back empty rather
+ * than throwing. `basicLogin` (top-level `basic_login`, default true) lets an
+ * SSO-only deployment hide the username/password path.
  * @param {(url: string, init?: object) => Promise<Response>} fetchFn
  * @param {string} basePath  e.g. location.pathname ('/sql')
  */
@@ -58,9 +61,11 @@ export async function loadConfigDoc(fetchFn, basePath = '') {
   const cfgResp = await fetchFn(cfgUrl, { cache: 'no-store' });
   if (!cfgResp.ok) throw new Error('GET ' + cfgUrl + ': ' + cfgResp.status);
   const cfg = await cfgResp.json();
-  const list = Array.isArray(cfg.idps) ? cfg.idps : [cfg];
-  if (!list.length) throw new Error('config.json has no IdPs');
-  return { idps: list.map(normalizeEntry) };
+  // A list, a legacy bare IdP object, or neither (credentials-only → no IdPs).
+  const list = Array.isArray(cfg.idps)
+    ? cfg.idps
+    : (cfg.issuer || cfg.client_id) ? [cfg] : [];
+  return { idps: list.map(normalizeEntry), basicLogin: cfg.basic_login !== false };
 }
 
 /**
