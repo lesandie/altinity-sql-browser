@@ -110,12 +110,30 @@ one matches the token's `iss`, so no extra CH wiring is required to offer severa
 ### Credentials login (username / password)
 
 Alongside SSO, the sign-in screen offers a **ClickHouse username + password**
-path (HTTP Basic). It is shown by default; set top-level `"basic_login": false`
-in `config.json` to hide it and force SSO-only. A deployment with no OAuth at all
-can ship a credentials-only config (no `idps`):
+path (HTTP Basic), shown by default.
+
+**Hide it (SSO-only).** If the cluster has no password-authenticated CH users —
+e.g. it only accepts JWTs via a `token_processor`/verifier — the credentials path
+would just 401, so set top-level `"basic_login": false` to drop it and offer SSO
+only:
 
 ```json
-{ "basic_login": true }
+{
+  "basic_login": false,
+  "idps": [ { "id": "google", "issuer": "https://accounts.google.com", "client_id": "…" } ]
+}
+```
+
+(Some verifier setups *do* pass real CH password users through — e.g. a cluster
+with a `demo` user still accepts `demo`/password — so whether to hide the path is
+about what that server actually authenticates, not just "does it use OAuth".)
+
+**Credentials-only (no SSO).** A deployment with no OAuth can omit `idps`
+entirely; the SSO buttons disappear and only the username/password form shows
+(`basic_login` defaults on):
+
+```json
+{}
 ```
 
 Credentials authenticate against the **serving host** by default. The login
