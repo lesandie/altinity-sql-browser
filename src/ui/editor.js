@@ -2,7 +2,7 @@
 // line-number gutter. Highlighting reuses the pure tokenizer in core.
 
 import { h, zoomScale } from './dom.js';
-import { tokenize, maskLiterals } from '../core/sql-highlight.js';
+import { tokenize, maskFromTokens } from '../core/sql-highlight.js';
 import { buildMarkSegments } from '../core/editor-marks.js';
 import { matchBracketAt, bracketEdit } from '../core/editor-brackets.js';
 import { caretXY, offsetFromXY } from '../core/editor-geometry.js';
@@ -32,8 +32,15 @@ export const IDENT_MIME = 'application/x-asb-identifier';
  * (#25); omitted → the tokenizer's built-in sets.
  */
 export function renderHighlightInto(preEl, sql, opts) {
+  renderTokensInto(preEl, tokenize(sql, opts));
+}
+
+// Paint an already-tokenized stream into `preEl`. Split out so the editor's
+// keystroke path can tokenize ONCE and feed both the highlighter and the
+// literal mask, instead of tokenizing the buffer twice per keystroke (#5 review).
+export function renderTokensInto(preEl, tokens) {
   preEl.replaceChildren();
-  for (const [t, v] of tokenize(sql, opts)) {
+  for (const [t, v] of tokens) {
     if (t === 'ws') {
       preEl.appendChild(document.createTextNode(v));
     } else {
@@ -71,23 +78,33 @@ export function mountEditor(app, container) {
   const area = h('div', { class: 'sql-area' }, markPre, pre, ta);
   container.replaceChildren(h('div', { class: 'sql-editor' }, gutter, area));
 
-  const paintTokens = (sql) => {
-    // Highlight with the connection's reference keyword/function sets when
-    // they've loaded (#25); before that, the tokenizer's built-ins.
+  // Tokenize the buffer ONCE per (text, reference-data) change and reuse the
+  // token list for BOTH the syntax highlighter and the literal mask, instead of
+  // tokenizing twice per keystroke (#5 review). Re-tokenize when app.refData
+  // changes too (server keyword/func sets arrive after connect), else the
+  // re-highlight would use stale tokens. String/comment classification is
+  // opt-independent, so the highlighter's token list is valid for the mask.
+  let tokVal = null;
+  let tokRef = null;
+  let tokList = [];
+  let maskOut = '';
+  const recompute = () => {
     const ref = app.refData;
-    renderHighlightInto(pre, sql, ref ? { keywords: ref.keywordSet, funcs: ref.funcSet } : undefined);
+    if (ta.value === tokVal && ref === tokRef) return;
+    tokVal = ta.value;
+    tokRef = ref;
+    tokList = tokenize(ta.value, ref ? { keywords: ref.keywordSet, funcs: ref.funcSet } : undefined);
+    maskOut = maskFromTokens(tokList);
+  };
+  const paintTokens = (sql) => {
+    recompute(); // sql === ta.value at every call site (sync sets ta.value first)
+    renderTokensInto(pre, tokList);
     gutter.replaceChildren(...gutterLines(sql));
   };
-  // The text with string/comment/backtick-ident chars masked to NUL, cached by
-  // value so caret moves and keydowns reuse it (recomputed only when the text
-  // changes). Bracket matching, signature help, and the auto-close decision run
-  // on this so literals' brackets/quotes/commas don't pair or count (#2 review).
-  let maskVal = null;
-  let maskOut = '';
-  const masked = () => {
-    if (ta.value !== maskVal) { maskVal = ta.value; maskOut = maskLiterals(ta.value); }
-    return maskOut;
-  };
+  // The text with string/comment/backtick-ident chars masked to NUL. Bracket
+  // matching, signature help, and the auto-close decision run on this so
+  // literals' brackets/quotes/commas don't pair or count (#2 review).
+  const masked = () => { recompute(); return maskOut; };
   // All highlight sources, aggregated for the overlay: search matches (#23) or,
   // when search is closed and the caret is collapsed, the bracket pair adjacent
   // to the caret (#24).

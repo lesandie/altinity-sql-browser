@@ -111,11 +111,20 @@ export function tokenize(sql, { keywords = SQL_KEYWORDS, funcs = SQL_FUNCS } = {
 // brackets/quotes/commas inside literals don't pair, count as arguments, or
 // trigger auto-close. NUL is none of `(),;\n`, so the raw-char scanners skip it.
 // Offsets are preserved (same length), so indices map back to the real text.
-export function maskLiterals(sql) {
+export function maskFromTokens(tokens) {
   let out = '';
-  for (const [t, v] of tokenize(sql)) {
+  for (const [t, v] of tokens) {
     const literal = t === 'string' || t === 'comment' || (t === 'ident' && v[0] === '`');
     out += literal ? '\0'.repeat(v.length) : v;
   }
   return out;
+}
+
+// Convenience wrapper that tokenizes then masks. Callers on the keystroke path
+// that already tokenized for highlighting should reuse maskFromTokens with that
+// token list instead, to avoid a second pass (#5 review). String/comment
+// classification is independent of the keyword/func sets, so a token list built
+// with server keyword overrides yields the same mask.
+export function maskLiterals(sql) {
+  return maskFromTokens(tokenize(sql));
 }

@@ -57,7 +57,10 @@ export function createIntel(host) {
     if (!found) { hideSig(); return; }
     const meta = found.meta;
     const sig = meta.sig; // always "name(…)" — the loader guarantees a () fallback
-    const inner = sig.slice(sig.indexOf('(') + 1, sig.lastIndexOf(')'));
+    // Strip the optional-param brackets ClickHouse syntax uses (`name(a, b[, c])`)
+    // before splitting on commas, so the parts align with signatureContext's
+    // depth-0 comma count and the active-arg highlight lands right (#2 review).
+    const inner = sig.slice(sig.indexOf('(') + 1, sig.lastIndexOf(')')).replace(/[[\]]/g, '');
     const args = inner.split(',');
     const parts = [h('span', { class: 'sig-name' }, ctx.name), '('];
     args.forEach((a, i) => {
@@ -82,7 +85,10 @@ export function createIntel(host) {
     const cy = e.clientY;
     hoverTimer = setTimeout(() => {
       const pos = host.offsetAt(cx, cy);
-      const w = pos == null ? null : wordAt(ta.value, pos);
+      // Resolve the hovered word from the string/comment-masked text (literal
+      // chars are NUL), so hovering a word inside a string or comment shows no
+      // phantom doc card — consistent with signature help (#1 review).
+      const w = pos == null ? null : wordAt(host.maskedValue(), pos);
       if (!w) { hideHover(); return; }
       const token = ++hoverToken;
       const found = lookupFn(w.word);

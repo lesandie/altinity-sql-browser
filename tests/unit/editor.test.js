@@ -40,6 +40,16 @@ describe('mountEditor', () => {
     mountEditor(app, document.createElement('div'));
     expect(app.dom.editorPre.querySelector('.sql-keyword').textContent).toBe('FOO');
   });
+  it('re-highlights when reference data arrives after connect — same text, new sets (#5 review)', () => {
+    const app = makeApp();
+    app.activeTab().sql = 'FOO';
+    mountEditor(app, document.createElement('div'));
+    expect(app.dom.editorPre.querySelector('.sql-keyword')).toBeNull(); // FOO is a plain ident pre-connect
+    app.refData = { keywordSet: new Set(['FOO']), funcSet: new Set() };
+    app.dom.editorSync(); // what loadReference calls when server sets arrive
+    // the shared token cache must invalidate on the refData change (not just on text change)
+    expect(app.dom.editorPre.querySelector('.sql-keyword').textContent).toBe('FOO');
+  });
   it('typing updates the tab, marks dirty, repaints, and rerenders', () => {
     const { app, ta } = mount();
     ta.value = 'SELECT 2\nFROM t';
@@ -686,6 +696,7 @@ describe('signature help + hover docs (#27)', () => {
       substring: { kind: 'fn', sig: 'substring(s, off, len)', ret: 'String', desc: 'A substring.' },
       now: { kind: 'fn', sig: 'now()', ret: 'DateTime', desc: '' }, // signature, no description
       CAST: { kind: 'cast', sig: 'CAST(x, T)', ret: '', desc: '' }, // canonically uppercase
+      lpad: { kind: 'fn', sig: 'lpad(s, len[, pad])', ret: 'String', desc: '' }, // optional/bracketed param
     },
     keywordDocs: { PREWHERE: 'Filter applied before reading other columns.' },
     keywordSet: new Set(['PREWHERE']),
@@ -762,6 +773,16 @@ describe('signature help + hover docs (#27)', () => {
     expect(el).not.toBeNull();
     expect(el.querySelector('.sig-arg.on').textContent).toBe('off'); // arg index 1, not miscounted by the string's comma
   });
+  it('splits bracketed/optional params cleanly so the active arg aligns (#2 review)', () => {
+    const v = 'lpad(a, b, '; // sig is lpad(s, len[, pad]) — caret on the 3rd arg
+    const { container, ta } = mounted(v);
+    caretMove(ta, v.length);
+    const el = sig(container);
+    expect(el).not.toBeNull();
+    const argTexts = [...el.querySelectorAll('.sig-arg')].map((a) => a.textContent);
+    expect(argTexts).toEqual(['s', 'len', 'pad']); // not ['s','len[',' pad]'] — brackets stripped
+    expect(el.querySelector('.sig-arg.on').textContent).toBe('pad'); // arg index 2 aligns
+  });
 
   describe('hover docs', () => {
     beforeEach(() => vi.useFakeTimers());
@@ -790,6 +811,15 @@ describe('signature help + hover docs (#27)', () => {
       ta.dispatchEvent(new MouseEvent('mouseleave')); // hover dismissed
       await flush(); // the doc resolves but must not resurrect the card
       expect(card(container)).toBeNull();
+    });
+    it('shows no card when hovering a function word inside a string literal (#1 review)', async () => {
+      const { container, ta } = mounted("x = 'sum'"); // 'sum' is inside the string
+      ta.getBoundingClientRect = () => ({ left: 0, top: 0, width: 100, right: 100, bottom: 24, height: 24 });
+      Object.defineProperty(ta, 'offsetWidth', { value: 100, configurable: true });
+      move(ta, 14 + 6 * 7.8); // col 6 → the 'u' of 'sum', inside the string
+      vi.advanceTimersByTime(360);
+      await flush();
+      expect(card(container)).toBeNull(); // masked text → wordAt returns null → no phantom card
     });
     it('hovering a keyword shows its built-in doc', () => {
       const { container, ta } = mounted('PREWHERE x');

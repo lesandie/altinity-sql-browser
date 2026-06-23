@@ -238,10 +238,12 @@ describe('loadEntityDoc (#27 — lazy hover docs)', () => {
     await loadEntityDoc(ctx, "o'brien", sqlString);
     expect(fetchImpl.mock.calls[0][1].body).toContain("WHERE name = 'o''brien'");
   });
-  it('returns "" for an unknown name, no rows, an all-blank description, or an error (best-effort)', async () => {
+  it('returns "" when the query succeeds but there is no description (unknown name / blank)', async () => {
     expect(await loadEntityDoc(ctxWith(async () => jsonResp({ data: [] })), 'nope', sqlString)).toBe('');
     expect(await loadEntityDoc(ctxWith(async () => jsonResp({ data: [{ description: '\n   \n' }] })), 'blank', sqlString)).toBe('');
-    expect(await loadEntityDoc(ctxWith(async () => textResp('boom', false, 500)), 'x', sqlString)).toBe('');
+  });
+  it('returns null when the query FAILS, so the caller can retry rather than cache it (#8 review)', async () => {
+    expect(await loadEntityDoc(ctxWith(async () => textResp('boom', false, 500)), 'x', sqlString)).toBeNull();
   });
 });
 

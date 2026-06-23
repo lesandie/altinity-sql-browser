@@ -301,8 +301,13 @@ export function createApp(env = {}) {
   app.entityDoc = (name) => {
     if (app.docCache.has(name)) return Promise.resolve(app.docCache.get(name));
     const p = ensureConfig().then(() => ch.loadEntityDoc(chCtx, name, sqlString));
-    app.docCache.set(name, p);
-    p.then((doc) => app.docCache.set(name, doc)); // collapse the promise to its value
+    app.docCache.set(name, p); // dedupe concurrent hovers of the same name
+    p.then((doc) => {
+      // Cache a resolved doc ('' included = genuinely no doc), but DROP a failed
+      // fetch (null) so a transient error doesn't suppress it for the session (#8).
+      if (doc === null) app.docCache.delete(name);
+      else app.docCache.set(name, doc);
+    });
     return p;
   };
   app.loadReference = async () => {

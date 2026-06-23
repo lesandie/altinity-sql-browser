@@ -240,6 +240,21 @@ describe('loadReference / rebuildCompletions (#25)', () => {
     const docQueries = fetch.mock.calls.filter(([, init]) => init && /system\.functions/.test(init.body) && /description/.test(init.body));
     expect(docQueries.length).toBe(1);
   });
+  it('does not cache a FAILED doc fetch — it retries on the next hover (#8 review)', async () => {
+    let calls = 0;
+    const fetch = makeFetch([
+      [(u, sql) => /system\.functions/.test(sql) && /description/.test(sql), () => {
+        calls += 1;
+        return calls === 1
+          ? resp({ ok: false, status: 500, text: 'boom' })            // transient failure
+          : resp({ json: { data: [{ description: 'Now works.' }] } }); // later succeeds
+      }],
+    ]);
+    const app = createApp(env({ fetch }));
+    expect(await app.entityDoc('count')).toBeNull(); // failed → null, not cached
+    expect(await app.entityDoc('count')).toBe('Now works.'); // retried, not served from a cached error
+    expect(calls).toBe(2);
+  });
 });
 
 describe('query run', () => {

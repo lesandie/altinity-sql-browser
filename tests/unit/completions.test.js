@@ -111,6 +111,10 @@ describe('completionContext', () => {
   it('word at the very start', () => {
     expect(completionContext('SEL', 3)).toMatchObject({ word: 'SEL', from: 0, qualified: false });
   });
+  it('a dot NOT preceded by an identifier is not qualified — falls back to normal completion (#4 review)', () => {
+    expect(completionContext('.col', 4)).toMatchObject({ word: 'col', qualified: false, parent: null });
+    expect(completionContext('count().c', 9)).toMatchObject({ word: 'c', qualified: false, parent: null });
+  });
 });
 
 describe('rankCompletions', () => {

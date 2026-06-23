@@ -203,17 +203,19 @@ export async function loadReferenceData(ctx) {
  * Fetch one function's documentation on demand for hover docs (#27). Kept OUT of
  * the bulk reference load: descriptions are large and most are never hovered, so
  * loading every one would bloat connect time. The caller (app.entityDoc) caches
- * the result so each entity is queried at most once per connection. Best-effort:
- * returns '' on error, an unknown name, or an older server without the
- * `description` column. Returns the first non-empty line (CH descriptions begin
- * with a blank line).
+ * the result so each entity is queried at most once per connection. Returns the
+ * first non-empty line (CH descriptions begin with a blank line), `''` when the
+ * query SUCCEEDS but there's no description (unknown name / older server / blank),
+ * or `null` when the query itself FAILED — so the caller can cache the former but
+ * retry the latter rather than sticking a transient error (#8 review).
  */
 export async function loadEntityDoc(ctx, name, sqlString) {
   const rows = await tryQueryData(
     ctx,
     'SELECT description FROM system.functions WHERE name = ' + sqlString(name) + ' LIMIT 1 FORMAT JSON',
   );
-  return rows && rows[0] ? firstLine(rows[0].description) : '';
+  if (rows === null) return null;                  // query failed → retryable, don't cache
+  return rows[0] ? firstLine(rows[0].description) : ''; // succeeded → '' means genuinely no doc
 }
 
 /**

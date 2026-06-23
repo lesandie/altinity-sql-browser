@@ -89,12 +89,16 @@ export function completionContext(value, pos) {
   let s = pos;
   while (s > 0 && /[A-Za-z0-9_]/.test(value[s - 1])) s--;
   const word = value.slice(s, pos);
-  const qualified = value[s - 1] === '.';
+  let qualified = false;
   let parent = null;
-  if (qualified) {
+  if (value[s - 1] === '.') {
     let p = s - 1;
     while (p > 0 && /[A-Za-z0-9_]/.test(value[p - 1])) p--;
-    parent = value.slice(p, s - 1);
+    const name = value.slice(p, s - 1);
+    // Only qualified when a real identifier precedes the dot. A bare '.' after a
+    // non-identifier (`.col`, `).c`, `count().c`) would otherwise yield parent=''
+    // and an empty dropdown — fall back to normal completion instead (#4 review).
+    if (name) { qualified = true; parent = name; }
   }
   return { word, from: s, to: pos, qualified, parent };
 }
