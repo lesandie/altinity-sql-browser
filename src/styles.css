@@ -523,6 +523,10 @@ body {
 .chart-view {
   height: 100%; background: var(--bg-table);
   display: flex; flex-direction: column;
+  /* When the pane is dragged short and the wrap-able config bar grows tall, let
+     the view scroll instead of crushing the canvas (which has a min-height) to
+     ~0px with no way to reach it. */
+  overflow: auto;
 }
 .chart-config {
   display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
@@ -553,8 +557,10 @@ body {
   margin-left: auto; font-family: var(--mono);
   font-size: 10.5px; color: var(--fg-faint); white-space: nowrap;
 }
-/* The canvas fills the remaining space; Chart.js is responsive within it. */
-.chart-canvas-wrap { flex: 1; min-height: 0; position: relative; padding: 12px 14px; }
+/* The canvas fills the remaining space; Chart.js is responsive within it. The
+   min-height floor keeps it visible (and lets .chart-view scroll) when a tall
+   wrapped config bar would otherwise leave it 0px. */
+.chart-canvas-wrap { flex: 1; min-height: 180px; position: relative; padding: 12px 14px; }
 .chart-empty {
   height: 100%; background: var(--bg-table);
   display: flex; flex-direction: column; align-items: center; justify-content: center;

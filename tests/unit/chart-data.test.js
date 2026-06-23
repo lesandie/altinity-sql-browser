@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   chartStripType, chartRole, autoChart, schemaKey, CHART_TYPES, chartFieldOptions,
   chartNumFmt, chartLabel, chartPalette, chartColors, buildChartData, chartJsConfig,
+  cloneChartCfg, chartCfgValid, normalizeChartCfg,
 } from '../../src/core/chart-data.js';
 
 describe('chartStripType', () => {
@@ -22,11 +23,18 @@ describe('chartRole', () => {
     expect(chartRole({ name: 'd', type: 'Date' })).toBe('time');
     expect(chartRole({ name: 'flights', type: 'UInt64' })).toBe('measure');
     expect(chartRole({ name: 'Year', type: 'UInt16' })).toBe('ordinal');
+    expect(chartRole({ name: 'months', type: 'UInt16' })).toBe('ordinal'); // plural bucket
     expect(chartRole({ name: 'carrier', type: 'LowCardinality(String)' })).toBe('category');
   });
   it('treats a numeric column with no name as a measure, and a missing col as category', () => {
     expect(chartRole({ type: 'Float64' })).toBe('measure');
     expect(chartRole(undefined)).toBe('category');
+  });
+  it('does not misclassify a measure merely prefixed with a bucket word', () => {
+    // anchored regex: a real measure named like a bucket stays a measure
+    expect(chartRole({ name: 'monthly_revenue', type: 'Float64' })).toBe('measure');
+    expect(chartRole({ name: 'minutes_watched', type: 'UInt64' })).toBe('measure');
+    expect(chartRole({ name: 'dayrate', type: 'Float64' })).toBe('measure');
   });
 });
 
@@ -51,6 +59,11 @@ describe('autoChart', () => {
   it('all-measure result falls back to col 0 as X (bar)', () => {
     expect(autoChart([{ name: 'a', type: 'UInt64' }, { name: 'b', type: 'Float64' }]))
       .toEqual({ type: 'bar', x: 0, y: [0], series: null });
+  });
+  it('charts a sole numeric measure even when its name is prefixed with a bucket word', () => {
+    // regression: `monthly_total` must not be misread as an ordinal axis → null
+    expect(autoChart([{ name: 'carrier', type: 'String' }, { name: 'monthly_total', type: 'Float64' }]))
+      .toEqual({ type: 'hbar', x: 0, y: [1], series: null });
   });
 });
 
@@ -121,10 +134,35 @@ describe('chartNumFmt', () => {
 });
 
 describe('chartLabel', () => {
-  it('collapses ISO dates to YYYY-MM and stringifies the rest', () => {
-    expect(chartLabel('2026-06-21 12:00:00')).toBe('2026-06');
+  it('trims an ISO datetime to its date (keeps day granularity) and stringifies the rest', () => {
+    expect(chartLabel('2026-06-21 12:00:00')).toBe('2026-06-21');
+    expect(chartLabel('2026-06-21')).toBe('2026-06-21');
     expect(chartLabel('B6')).toBe('B6');
     expect(chartLabel(7)).toBe('7');
+  });
+});
+
+describe('normalizeChartCfg', () => {
+  it('null → null', () => {
+    expect(normalizeChartCfg(null)).toBeNull();
+  });
+  it('clears a series that equals the X column', () => {
+    expect(normalizeChartCfg({ type: 'bar', x: 2, y: [1], series: 2 }))
+      .toEqual({ type: 'bar', x: 2, y: [1], series: null });
+  });
+  it('leaves a distinct series untouched', () => {
+    expect(normalizeChartCfg({ type: 'bar', x: 0, y: [1], series: 2 }))
+      .toEqual({ type: 'bar', x: 0, y: [1], series: 2 });
+  });
+  it('forces pie to a single measure and no series', () => {
+    expect(normalizeChartCfg({ type: 'pie', x: 0, y: [1, 2], series: 3 }))
+      .toEqual({ type: 'pie', x: 0, y: [1], series: null });
+  });
+  it('tolerates a pie with a missing/short y array', () => {
+    expect(normalizeChartCfg({ type: 'pie', x: 0, y: [1], series: null }))
+      .toEqual({ type: 'pie', x: 0, y: [1], series: null });
+    expect(normalizeChartCfg({ type: 'pie', x: 0, series: 2 }))
+      .toEqual({ type: 'pie', x: 0, series: null });
   });
 });
 
@@ -147,6 +185,10 @@ describe('chartColors', () => {
     const c = chartColors((name) => (name === '--accent' ? '  #fff  ' : ''));
     expect(c.accent).toBe('#fff');
     expect(c.fg).toBe('#E6E6E8'); // blank → fallback
+  });
+  it('resolves a real --mono font stack (canvas can\'t use var(--mono))', () => {
+    expect(chartColors(null).mono).toContain('monospace'); // fallback stack
+    expect(chartColors((name) => (name === '--mono' ? 'Courier' : '')).mono).toBe('Courier');
   });
 });
 
@@ -184,6 +226,29 @@ describe('buildChartData', () => {
     const out = buildChartData([{ name: 'c', type: 'String' }, { name: 'n', type: 'UInt64' }], big,
       { type: 'hbar', x: 0, y: [1], series: null });
     expect(out.labels).toHaveLength(500);
+  });
+  it('aggregates (sums) rows sharing an X bucket — single-series path', () => {
+    // two rows for the same carrier are summed, not last-write-wins
+    const rows = [['B6', '10', '1', 'E'], ['B6', '30', '4', 'W'], ['AA', '20', '2', 'W']];
+    const out = buildChartData(cols, rows, { type: 'bar', x: 0, y: [1, 2], series: null });
+    expect(out.labels).toEqual(['B6', 'AA']); // deduped
+    expect(out.datasets).toEqual([
+      { label: 'flights', data: [40, 20] }, // B6: 10+30
+      { label: 'delay', data: [5, 2] },     // B6: 1+4
+    ]);
+  });
+  it('aggregates (sums) rows sharing an (X, series) cell — group-by path', () => {
+    const rows = [['B6', '10', '1', 'W'], ['B6', '30', '1', 'W']]; // same carrier+region
+    const out = buildChartData(cols, rows, { type: 'bar', x: 0, y: [1], series: 3 });
+    expect(out.labels).toEqual(['B6']);
+    expect(out.datasets).toEqual([{ label: 'W', data: [40] }]); // 10+30, not last-wins(30)
+  });
+  it('groups on the raw X value so two times on the same day stay distinct', () => {
+    const c = [{ name: 'ts', type: 'DateTime' }, { name: 'n', type: 'UInt64' }];
+    const rows = [['2026-06-15 09:00:00', '1'], ['2026-06-15 17:00:00', '2']];
+    const out = buildChartData(c, rows, { type: 'line', x: 0, y: [1], series: null });
+    expect(out.labels).toEqual(['2026-06-15', '2026-06-15']); // both ticks read the date
+    expect(out.datasets[0].data).toEqual([1, 2]); // but the two points survive (no merge)
   });
 });
 
@@ -238,5 +303,40 @@ describe('chartJsConfig', () => {
     expect(cfg.data.datasets).toHaveLength(2);
     expect(cfg.options.plugins.legend.display).toBe(true);
     expect(cfg.options.plugins.legend.position).toBe('top');
+  });
+});
+
+describe('cloneChartCfg', () => {
+  it('deep-copies cfg so y is not shared with the source', () => {
+    const src = { type: 'bar', x: 0, y: [1, 2], series: 3 };
+    const c = cloneChartCfg(src);
+    expect(c).toEqual(src);
+    expect(c).not.toBe(src);
+    expect(c.y).not.toBe(src.y);
+  });
+  it('null → null and defaults a missing y/series', () => {
+    expect(cloneChartCfg(null)).toBeNull();
+    expect(cloneChartCfg({ type: 'pie', x: 0 })).toEqual({ type: 'pie', x: 0, y: [], series: null });
+  });
+});
+
+describe('chartCfgValid', () => {
+  const cols = [{ name: 'a', type: 'String' }, { name: 'b', type: 'UInt64' }];
+  it('accepts a well-formed config (series null or in range)', () => {
+    expect(chartCfgValid({ type: 'bar', x: 0, y: [1], series: null }, cols)).toBe(true);
+    expect(chartCfgValid({ type: 'pie', x: 0, y: [1], series: 0 }, cols)).toBe(true);
+  });
+  it('rejects non-objects, unknown types, and out-of-range indices', () => {
+    expect(chartCfgValid(null, cols)).toBe(false);
+    expect(chartCfgValid('x', cols)).toBe(false);
+    expect(chartCfgValid({ type: 'donut', x: 0, y: [1], series: null }, cols)).toBe(false);
+    expect(chartCfgValid({ type: 'bar', x: 9, y: [1], series: null }, cols)).toBe(false);
+    expect(chartCfgValid({ type: 'bar', x: 0, y: [], series: null }, cols)).toBe(false);
+    expect(chartCfgValid({ type: 'bar', x: 0, y: [9], series: null }, cols)).toBe(false);
+    expect(chartCfgValid({ type: 'bar', x: 0, y: 'nope', series: null }, cols)).toBe(false);
+    expect(chartCfgValid({ type: 'bar', x: 0, y: [1], series: 9 }, cols)).toBe(false);
+  });
+  it('treats missing columns as zero-length (nothing in range)', () => {
+    expect(chartCfgValid({ type: 'bar', x: 0, y: [0], series: null })).toBe(false);
   });
 });

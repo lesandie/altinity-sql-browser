@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { renderResults, renderJson, renderTable, renderChart, colResizeWidth, openCellDetail } from '../../src/ui/results.js';
 import { makeApp } from '../helpers/fake-app.js';
 import { newResult } from '../../src/core/stream.js';
+import { schemaKey } from '../../src/core/chart-data.js';
 
 const click = (el) => el.dispatchEvent(new Event('click', { bubbles: true }));
 
@@ -339,6 +340,26 @@ describe('renderChart', () => {
     expect(app.chart.config.options.indexAxis).toBe('y');
     expect(app.activeTab().chartCfg).toMatchObject({ type: 'hbar', x: 1, y: [0] });
   });
+  it('keeps a restored chart config when its schema key matches the result (saved/shared restore)', () => {
+    const r = chartResult();
+    const app = appWithResult(r, { resultView: 'chart' });
+    const tab = app.activeTab();
+    tab.chartKey = schemaKey(r.columns);
+    tab.chartCfg = { type: 'pie', x: 0, y: [2], series: null }; // a deliberate non-default
+    renderResults(app);
+    expect(app.activeTab().chartCfg).toEqual({ type: 'pie', x: 0, y: [2], series: null }); // not re-derived
+    expect(app.chart.config.type).toBe('pie');
+  });
+  it('falls back to autoChart when a restored config does not fit the schema (hand-edited link)', () => {
+    const r = chartResult();
+    const app = appWithResult(r, { resultView: 'chart' });
+    const tab = app.activeTab();
+    tab.chartKey = schemaKey(r.columns);
+    tab.chartCfg = { type: 'bar', x: 99, y: [1], series: null }; // x out of range
+    renderResults(app);
+    expect(app.activeTab().chartCfg.x).toBeLessThan(r.columns.length); // guard re-derived a safe default
+    expect(app.chart).not.toBeNull();
+  });
   it('Type select switches renderer; non-pie keeps series, pie resets it to single-measure', () => {
     const app = appWithResult(chartResult(), { resultView: 'chart' });
     renderResults(app);
@@ -408,5 +429,38 @@ describe('renderChart', () => {
     app.activeTab().result = tableResult(); // different schema → re-derive
     renderResults(app);
     expect(app.activeTab().chartCfg).not.toBe(cfg);
+  });
+  it('does not re-derive (clobber) a restored config while the query is still running', () => {
+    // running + rows already streamed: the run-state guard must fire BEFORE
+    // chartCfgFor, so a still-settling result can't stamp a new key / autoChart
+    // over the restored saved/shared config.
+    const app = appWithResult(chartResult(), { resultView: 'chart', running: true });
+    const tab = app.activeTab();
+    const restored = { type: 'pie', x: 0, y: [2], series: null };
+    tab.chartCfg = restored;
+    tab.chartKey = 'STALE_KEY'; // deliberately != schemaKey(result.columns)
+    renderResults(app);
+    expect(app.dom.resultsRegion.textContent).toContain('renders when the query completes');
+    expect(tab.chartCfg).toBe(restored); // untouched — chartCfgFor never ran
+    expect(tab.chartKey).toBe('STALE_KEY');
+  });
+  it('normalizes a restored, self-contradictory pie config (multi-measure + series) on render', () => {
+    const r = chartResult();
+    const app = appWithResult(r, { resultView: 'chart' });
+    const tab = app.activeTab();
+    tab.chartKey = schemaKey(r.columns); // in-range but invalid combination
+    tab.chartCfg = { type: 'pie', x: 0, y: [2, 3], series: 1 };
+    renderResults(app);
+    expect(app.activeTab().chartCfg).toEqual({ type: 'pie', x: 0, y: [2], series: null });
+    expect(app.chart.config.data.datasets).toHaveLength(1); // single pie dataset
+  });
+  it('clears the series when the X column is changed to equal it', () => {
+    const app = appWithResult(chartResult(), { resultView: 'chart' });
+    renderResults(app);
+    change(fieldSel(app.dom.resultsRegion, 'Series'), '1'); // series = region(1)
+    expect(app.activeTab().chartCfg.series).toBe(1);
+    change(fieldSel(app.dom.resultsRegion, 'X'), '1'); // X now equals series → series cleared
+    expect(app.activeTab().chartCfg.x).toBe(1);
+    expect(app.activeTab().chartCfg.series).toBeNull();
   });
 });

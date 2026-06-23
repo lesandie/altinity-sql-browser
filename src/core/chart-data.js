@@ -7,9 +7,12 @@
 import { isNumericType } from './format.js';
 
 const TIME_RE = /^(Date|DateTime)/;
-// Numeric columns whose *name* reads like a calendar bucket (year, month, …)
-// are ordinal, not free measures — a `GROUP BY toYear(...)` is an X axis.
-const ORDINAL_RE = /^(year|quarter|month|week|day|dayofweek|dow|hour|minute)/i;
+// Numeric columns whose *name is exactly* a calendar bucket (year, month, …)
+// are ordinal, not free measures — a `GROUP BY toYear(...) AS year` is an X
+// axis. Anchored at both ends (optional plural) so a real measure like
+// `monthly_revenue` / `minutes_watched` / `dayrate` stays a measure rather
+// than being misclassified by a mere prefix and dropped from autoChart.
+const ORDINAL_RE = /^(year|quarter|month|week|day|dayofweek|dow|hour|minute)s?$/i;
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}/;
 
 // Plots past this get unreadable, so the chart shows the first N (the table
@@ -71,6 +74,35 @@ export const CHART_TYPES = [
   { value: 'pie', label: 'Pie' },
 ];
 
+const CHART_TYPE_SET = new Set(CHART_TYPES.map((t) => t.value));
+
+/**
+ * Deep-clone a chart config (`y` is an array) so a config restored from a saved
+ * query / share link never shares a reference with its source — editing the
+ * restored chart must not mutate the saved entry. null → null.
+ */
+export function cloneChartCfg(cfg) {
+  return cfg ? { type: cfg.type, x: cfg.x, y: [...(cfg.y || [])], series: cfg.series ?? null } : null;
+}
+
+/**
+ * Is a (possibly untrusted) chart config structurally valid for `columns`?
+ * Restored configs come from saved JSON / a URL hash a user can hand-edit, so
+ * before `chartJsConfig` dereferences `cfg.x` / `cfg.y[i]` / `cfg.series` as
+ * column indices we confirm the type is known and every index is in range —
+ * otherwise the caller falls back to `autoChart`.
+ */
+export function chartCfgValid(cfg, columns) {
+  if (!cfg || typeof cfg !== 'object') return false;
+  const n = (columns || []).length;
+  const idxOk = (i) => Number.isInteger(i) && i >= 0 && i < n;
+  if (!CHART_TYPE_SET.has(cfg.type)) return false;
+  if (!idxOk(cfg.x)) return false;
+  if (!Array.isArray(cfg.y) || cfg.y.length === 0 || !cfg.y.every(idxOk)) return false;
+  if (cfg.series != null && !idxOk(cfg.series)) return false;
+  return true;
+}
+
 /**
  * Derive the config-bar option lists + visibility flags for the current config.
  * Pure so the glue just maps these to <select> elements. `cfg.y` is an array of
@@ -113,10 +145,33 @@ export function chartNumFmt(v) {
   return Number.isInteger(v) ? String(v) : v.toFixed(2);
 }
 
-/** Format an X label: ISO dates collapse to YYYY-MM, everything else stringifies. */
+/**
+ * Format an X label. An ISO datetime is trimmed to its date (YYYY-MM-DD) so the
+ * tick is readable without dropping day granularity; everything else
+ * stringifies. NOTE: this is display only — `buildChartData` groups on the raw
+ * cell value, so two distinct timestamps on the same day stay distinct buckets.
+ */
 export function chartLabel(v) {
   const sv = String(v);
-  return ISO_DATE_RE.test(sv) ? sv.slice(0, 7) : sv;
+  return ISO_DATE_RE.test(sv) ? sv.slice(0, 10) : sv;
+}
+
+/**
+ * Fold a config's cross-field invariants so a hand-edited share link / imported
+ * saved query, or a live X change, can't produce a degenerate chart:
+ *  - a series equal to the X column would pivot a column against itself → clear it;
+ *  - a pie is single-measure with no group-by → drop series + extra measures.
+ * Mutates and returns `cfg` (null → null). Index ranges are still policed by
+ * `chartCfgValid`; this only enforces relationships between valid indices.
+ */
+export function normalizeChartCfg(cfg) {
+  if (!cfg) return cfg;
+  if (cfg.series != null && cfg.series === cfg.x) cfg.series = null;
+  if (cfg.type === 'pie') {
+    cfg.series = null;
+    if (Array.isArray(cfg.y) && cfg.y.length > 1) cfg.y = [cfg.y[0]];
+  }
+  return cfg;
 }
 
 /** A small categorical palette anchored on the brand accent. */
@@ -133,6 +188,10 @@ const COLOR_FALLBACK = {
   '--border': '#1F1F26',
   '--border-faint': '#1A1A20',
   '--bg-modal': '#1A1A20',
+  // A canvas 2D context can't resolve `var(--mono)`, so the font family must be
+  // a real stack too (mirrors styles.css --mono); otherwise Chart.js text falls
+  // back to the UA default sans-serif.
+  '--mono': "'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace",
 };
 
 /**
@@ -155,45 +214,58 @@ export function chartColors(read) {
     border: get('--border'),
     borderFaint: get('--border-faint'),
     bgModal: get('--bg-modal'),
+    mono: get('--mono'),
     palette: chartPalette(accent),
   };
 }
 
 /**
  * Transform `rows` (capped) + columns into a library-agnostic
- * { labels, datasets:[{label, data}] } per the encoding in `cfg`.
- * - group-by (cfg.series set): pivot rows into one dataset per series value,
- *   aligned to the union of X categories (first-seen order), missing → 0.
+ * { labels, datasets:[{label, data}] } per the encoding in `cfg`. Rows are
+ * grouped on the *raw* X cell value (first-seen order) and the measure is
+ * SUM-aggregated per cell, so multiple rows sharing an X bucket combine rather
+ * than the last one silently winning. `chartLabel` is applied only to the
+ * final tick text, never to the grouping identity.
+ * - group-by (cfg.series set): one dataset per series value, aligned to the
+ *   union of X categories, missing cell → 0.
  * - otherwise: one dataset per measure in `cfg.y`.
  */
 export function buildChartData(columns, rows, cfg) {
   const slice = rows.slice(0, CHART_ROW_CAP);
   const num = (v) => (v == null || v === '' ? 0 : Number(v) || 0);
+  const cats = []; // raw X keys, first-seen order
+  const seen = new Set();
+  const noteCat = (xk) => { if (!seen.has(xk)) { seen.add(xk); cats.push(xk); } };
 
   if (cfg.series != null) {
     const yi = cfg.y[0];
-    const cats = [];
-    const groups = new Map(); // seriesValue -> Map(xCat -> y)
+    const groups = new Map(); // seriesValue -> Map(xKey -> summed y)
     for (const row of slice) {
-      const xc = chartLabel(row[cfg.x]);
-      if (!cats.includes(xc)) cats.push(xc);
+      const xk = String(row[cfg.x]);
+      noteCat(xk);
       const sk = String(row[cfg.series]);
       if (!groups.has(sk)) groups.set(sk, new Map());
-      groups.get(sk).set(xc, num(row[yi]));
+      const byCat = groups.get(sk);
+      byCat.set(xk, (byCat.get(xk) || 0) + num(row[yi]));
     }
     const datasets = [...groups.entries()].map(([name, byCat]) => ({
       label: name,
-      data: cats.map((xc) => (byCat.has(xc) ? byCat.get(xc) : 0)),
+      data: cats.map((xk) => byCat.get(xk) || 0),
     }));
-    return { labels: cats, datasets };
+    return { labels: cats.map(chartLabel), datasets };
   }
 
-  const labels = slice.map((row) => chartLabel(row[cfg.x]));
-  const datasets = cfg.y.map((yi) => ({
+  const sums = cfg.y.map(() => new Map()); // per measure: xKey -> summed y
+  for (const row of slice) {
+    const xk = String(row[cfg.x]);
+    noteCat(xk);
+    cfg.y.forEach((yi, mi) => sums[mi].set(xk, (sums[mi].get(xk) || 0) + num(row[yi])));
+  }
+  const datasets = cfg.y.map((yi, mi) => ({
     label: columns[yi].name,
-    data: slice.map((row) => num(row[yi])),
+    data: cats.map((xk) => sums[mi].get(xk) || 0),
   }));
-  return { labels, datasets };
+  return { labels: cats.map(chartLabel), datasets };
 }
 
 const withAlpha = (hex, frac) => {
@@ -231,7 +303,7 @@ export function chartJsConfig(columns, rows, cfg, colors) {
 
   const multi = datasets.length > 1;
   const grid = { color: colors.borderFaint, drawBorder: false };
-  const ticks = { color: colors.fgMute, font: { family: 'var(--mono)', size: 10 } };
+  const ticks = { color: colors.fgMute, font: { family: colors.mono, size: 10 } };
   const valueTicks = { ...ticks, callback: (v) => chartNumFmt(typeof v === 'number' ? v : Number(v)) };
 
   const options = {
@@ -243,7 +315,7 @@ export function chartJsConfig(columns, rows, cfg, colors) {
         display: multi || isPie,
         position: isPie ? 'right' : 'top',
         align: 'start',
-        labels: { color: colors.fgMute, boxWidth: 10, boxHeight: 10, font: { family: 'var(--mono)', size: 11 } },
+        labels: { color: colors.fgMute, boxWidth: 10, boxHeight: 10, font: { family: colors.mono, size: 11 } },
       },
       tooltip: {
         backgroundColor: colors.bgModal,
@@ -251,8 +323,8 @@ export function chartJsConfig(columns, rows, cfg, colors) {
         borderWidth: 1,
         titleColor: colors.fg,
         bodyColor: colors.fg,
-        titleFont: { family: 'var(--mono)' },
-        bodyFont: { family: 'var(--mono)' },
+        titleFont: { family: colors.mono },
+        bodyFont: { family: colors.mono },
       },
     },
   };

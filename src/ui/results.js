@@ -7,7 +7,7 @@ import { Icon } from './icons.js';
 import { formatRows, formatBytes, isNumericType } from '../core/format.js';
 import { looksLikeHtml, prettyValue } from '../core/cell.js';
 import { sortRows } from '../core/sort.js';
-import { autoChart, schemaKey, chartFieldOptions, chartColors, chartJsConfig, CHART_ROW_CAP } from '../core/chart-data.js';
+import { autoChart, schemaKey, chartFieldOptions, chartColors, chartJsConfig, chartCfgValid, normalizeChartCfg, CHART_ROW_CAP } from '../core/chart-data.js';
 
 const VIS_CAP = 5000;
 const MIN_COL = 48; // px floor for a resized column
@@ -303,16 +303,24 @@ export function openCellDetail(app, name, type, value) {
 
 /**
  * Per-tab chart config: derive defaults via autoChart the first time (or when
- * the result schema changes), then keep the user's overrides. Returns null when
- * the result has nothing chartable.
+ * the result schema changes), then keep the user's overrides. A config restored
+ * from a saved query / share link carries the schema key it was built for, so
+ * when the re-run result matches that schema the restored config sticks. Returns
+ * null when the result has nothing chartable.
  */
 function chartCfgFor(tab, columns) {
   const key = schemaKey(columns);
   if (tab.chartKey !== key) {
     tab.chartKey = key;
     tab.chartCfg = autoChart(columns);
+  } else if (tab.chartCfg && !chartCfgValid(tab.chartCfg, columns)) {
+    // Key matches but the config doesn't fit (a hand-edited share link or a
+    // corrupted import) — fall back to a safe default rather than crash.
+    tab.chartCfg = autoChart(columns);
   }
-  return tab.chartCfg;
+  // Fold cross-field invariants on whatever we ended up with (a restored config
+  // can be in-range yet self-contradictory, e.g. a multi-measure pie).
+  return normalizeChartCfg(tab.chartCfg);
 }
 
 /** A labelled <select> for the config bar. */
@@ -332,11 +340,12 @@ function chartEmpty(icon, msg) {
 
 export function renderChart(app, r) {
   const tab = app.activeTab();
+  // Gate on run state BEFORE deriving the config: while a query streams its
+  // columns can be empty (pre-meta), and letting chartCfgFor see that empty
+  // schema would clobber a restored saved/shared config with autoChart(null).
+  if (app.state.running) return chartEmpty(Icon.spinner(), 'Chart renders when the query completes.');
   const cfg = chartCfgFor(tab, r.columns);
   if (!cfg) return chartEmpty(Icon.chart(), 'These results aren’t chartable — add a numeric column to plot them.');
-  // Build the chart only on a settled result; re-instantiating Chart.js on every
-  // streamed batch is wasteful (the table shows live progress meanwhile).
-  if (app.state.running) return chartEmpty(Icon.spinner(), 'Chart renders when the query completes.');
 
   const f = chartFieldOptions(r.columns, cfg);
   const rerender = () => renderResults(app);
@@ -344,10 +353,10 @@ export function renderChart(app, r) {
   const bar = h('div', { class: 'chart-config' });
   bar.appendChild(chartSelect('Type', cfg.type, f.typeOptions, (v) => {
     cfg.type = v;
-    if (v === 'pie') { cfg.series = null; cfg.y = [cfg.y[0]]; } // pie is single-measure
+    normalizeChartCfg(cfg); // pie drops series + extra measures
     rerender();
   }));
-  bar.appendChild(chartSelect('X', String(cfg.x), f.xOptions, (v) => { cfg.x = Number(v); rerender(); }));
+  bar.appendChild(chartSelect('X', String(cfg.x), f.xOptions, (v) => { cfg.x = Number(v); normalizeChartCfg(cfg); rerender(); }));
   bar.appendChild(chartSelect('Y', String(cfg.y[0]), f.yOptions, (v) => { cfg.y = [Number(v)]; rerender(); }));
   if (f.showMulti) {
     bar.appendChild(h('button', {
@@ -358,6 +367,7 @@ export function renderChart(app, r) {
   if (f.showSeries) {
     bar.appendChild(chartSelect('Series', String(cfg.series ?? ''), f.seriesOptions, (v) => {
       cfg.series = v === '' ? null : Number(v);
+      normalizeChartCfg(cfg);
       rerender();
     }));
   }
@@ -369,8 +379,12 @@ export function renderChart(app, r) {
   }
 
   const canvas = document.createElement('canvas');
-  const rows = sortRows(r.rows, app.state.resultSort.col, app.state.resultSort.dir);
-  app.chart = new app.Chart(canvas, chartJsConfig(r.columns, rows, cfg, chartColors(app.cssVar)));
+  // Plot in result (query) order — independent of the table's sort, which is a
+  // global, cross-tab setting; applying it here would reorder the X axis (a
+  // time series would zig-zag) and change which rows the CHART_ROW_CAP keeps,
+  // contradicting the "first N rows" note. It would also sort up to VIS_CAP
+  // rows just to discard all but the first CHART_ROW_CAP.
+  app.chart = new app.Chart(canvas, chartJsConfig(r.columns, r.rows, cfg, chartColors(app.cssVar)));
 
   return h('div', { class: 'chart-view' }, bar, h('div', { class: 'chart-canvas-wrap' }, canvas));
 }

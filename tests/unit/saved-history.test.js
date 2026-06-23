@@ -23,12 +23,13 @@ describe('renderSavedHistory', () => {
   it('saved: lists rows, loads on click, deletes via trash + refreshes Save button', () => {
     const app = makeApp();
     app.state.sidePanel = 'saved';
-    app.state.savedQueries = [{ id: 's1', name: 'Q1', sql: 'SELECT 1\n-- more', favorite: false }];
+    const chart = { cfg: { type: 'pie', x: 0, y: [1], series: null }, key: 'k' };
+    app.state.savedQueries = [{ id: 's1', name: 'Q1', sql: 'SELECT 1\n-- more', favorite: false, chart }];
     renderSavedHistory(app);
     const row = app.dom.savedList.querySelector('.saved-row');
     expect(row.querySelector('.preview').textContent).toBe('SELECT 1');
     click(row);
-    expect(app.actions.loadIntoNewTab).toHaveBeenCalledWith('Q1', 'SELECT 1\n-- more', 's1'); // links the tab
+    expect(app.actions.loadIntoNewTab).toHaveBeenCalledWith('Q1', 'SELECT 1\n-- more', 's1', chart); // links the tab + restores chart
     byTitle(row, 'Delete').dispatchEvent(new Event('click', { bubbles: true }));
     expect(app.state.savedQueries).toHaveLength(0);
     expect(app.updateSaveBtn).toHaveBeenCalled();

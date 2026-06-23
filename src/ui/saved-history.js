@@ -68,7 +68,7 @@ function renderSaved(app, list) {
       nameEl = h('span', { class: 'name' }, q.name);
     }
 
-    const row = h('div', { class: 'saved-row', onclick: () => { if (!editing) app.actions.loadIntoNewTab(q.name, q.sql, q.id); } },
+    const row = h('div', { class: 'saved-row', onclick: () => { if (!editing) app.actions.loadIntoNewTab(q.name, q.sql, q.id, q.chart); } },
       h('div', { class: 'top' },
         star,
         nameEl,

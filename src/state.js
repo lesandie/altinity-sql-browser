@@ -4,7 +4,13 @@
 
 import { clamp } from './core/format.js';
 import { mergeSaved } from './core/saved-io.js';
+import { cloneChartCfg } from './core/chart-data.js';
 import { loadJSON, saveJSON, loadStr } from './core/storage.js';
+
+/** A tab's chart state as a persistable payload `{ cfg, key }`, or null. */
+export function tabChart(tab) {
+  return tab && tab.chartCfg ? { cfg: cloneChartCfg(tab.chartCfg), key: tab.chartKey ?? null } : null;
+}
 
 export const KEYS = {
   theme: 'asb:theme',
@@ -84,12 +90,15 @@ export function saveQuery(state, tab, name, save = saveJSON, now = Date.now()) {
   const sql = String(tab.sql || '').trim();
   const nm = String(name || '').trim();
   if (!sql || !nm) return null;
+  const chart = tabChart(tab);
   let entry = savedForTab(state, tab);
   if (entry) {
     entry.name = nm;
     entry.sql = sql;
+    if (chart) entry.chart = chart; else delete entry.chart;
   } else {
     entry = { id: makeId('s', now), name: nm, sql, favorite: false };
+    if (chart) entry.chart = chart;
     state.savedQueries.unshift(entry);
     tab.savedId = entry.id;
   }

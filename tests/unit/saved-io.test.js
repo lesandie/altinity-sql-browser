@@ -14,6 +14,15 @@ describe('buildExportDoc', () => {
   it('handles an empty list', () => {
     expect(buildExportDoc([], 'T').queries).toEqual([]);
   });
+  it('carries an optional chart payload, omitting the field when absent', () => {
+    const chart = { cfg: { type: 'pie', x: 0, y: [1], series: null }, key: 'k' };
+    const doc = buildExportDoc([
+      { id: 's1', name: 'A', sql: '1', favorite: false, chart },
+      { id: 's2', name: 'B', sql: '2', favorite: false },
+    ], 'T');
+    expect(doc.queries[0].chart).toEqual(chart);
+    expect('chart' in doc.queries[1]).toBe(false);
+  });
 });
 
 describe('parseImportDoc', () => {
@@ -29,6 +38,17 @@ describe('parseImportDoc', () => {
       { id: 's1', name: 'A', sql: 'SELECT 1', favorite: true },
       { id: undefined, name: 'B', sql: 'SELECT 2', favorite: false },
     ]);
+  });
+  it('keeps a valid chart payload and drops a malformed one', () => {
+    const chart = { cfg: { type: 'bar', x: 0, y: [1], series: null }, key: 'k' };
+    const { queries } = parseImportDoc(env({ queries: [
+      { name: 'A', sql: '1', chart },
+      { name: 'B', sql: '2', chart: { nope: true } }, // no cfg → dropped
+      { name: 'C', sql: '3', chart: 'x' },            // non-object → dropped
+    ] }));
+    expect(queries[0].chart).toEqual(chart);
+    expect(queries[1].chart).toBeUndefined();
+    expect(queries[2].chart).toBeUndefined();
   });
   it('throws a user message for each invalid envelope', () => {
     expect(() => parseImportDoc('{not json')).toThrow('Not a valid JSON file');
@@ -58,5 +78,22 @@ describe('mergeSaved', () => {
     expect(r.merged.find((q) => q.name === 'C').id).toBe('s2');   // given id kept
     expect(r.merged.map((q) => q.name)).toEqual(['A2', 'B', 'C']);
     expect(existing[0]).toEqual({ id: 's1', name: 'A', sql: '1', favorite: false }); // not mutated
+  });
+  it('carries chart on add, replaces it by id, and drops it when an update omits it', () => {
+    const chart = { cfg: { type: 'pie', x: 0, y: [1], series: null }, key: 'k' };
+    const chart2 = { cfg: { type: 'line', x: 0, y: [1], series: null }, key: 'k' };
+    const existing = [
+      { id: 's1', name: 'A', sql: '1', favorite: false, chart },
+      { id: 's2', name: 'B', sql: '2', favorite: false, chart },
+    ];
+    const incoming = [
+      { id: 's1', name: 'A2', sql: '1b', favorite: false },                  // no chart → drop
+      { id: 's2', name: 'B2', sql: '2b', favorite: false, chart: chart2 },   // replace
+      { name: 'C', sql: '3', favorite: false, chart },                       // add with chart
+    ];
+    const r = mergeSaved(existing, incoming, () => 'g');
+    expect(r.merged.find((q) => q.id === 's1').chart).toBeUndefined();
+    expect(r.merged.find((q) => q.id === 's2').chart).toEqual(chart2);
+    expect(r.merged.find((q) => q.name === 'C').chart).toEqual(chart);
   });
 });

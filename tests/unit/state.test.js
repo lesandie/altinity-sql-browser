@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   KEYS, newTabObj, createState, activeTab, allocTabId,
   saveQuery, savedForTab, renameSaved, toggleFavorite, sortedSaved, importSaved,
-  deleteSaved, recordHistory, clearHistory, deleteHistory,
+  deleteSaved, recordHistory, clearHistory, deleteHistory, tabChart,
 } from '../../src/state.js';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -158,6 +158,32 @@ describe('saved queries', () => {
     // default save + genId (no injection) — exercises the default id generator
     importSaved(s, [{ name: 'Z', sql: 'zz' }]);
     expect(s.savedQueries.find((q) => q.name === 'Z').id).toMatch(/^s/);
+  });
+  it('tabChart packs a tab chart config (or null), defaulting a missing key', () => {
+    expect(tabChart(null)).toBeNull();
+    expect(tabChart({ chartCfg: null })).toBeNull();
+    const cfg = { type: 'bar', x: 0, y: [1], series: null };
+    expect(tabChart({ chartCfg: cfg, chartKey: 'k' })).toEqual({ cfg, key: 'k' });
+    expect(tabChart({ chartCfg: cfg })).toEqual({ cfg, key: null }); // key ?? null
+  });
+  it('saveQuery persists, updates, and clears the chart config alongside the SQL', () => {
+    const s = createState(reader());
+    const save = vi.fn();
+    const tab = s.tabs[0];
+    tab.sql = 'SELECT a, b';
+    tab.chartCfg = { type: 'pie', x: 0, y: [1], series: null };
+    tab.chartKey = 'a:String|b:UInt64';
+    const e1 = saveQuery(s, tab, 'Chartd', save, 100);
+    expect(e1.chart).toEqual({ cfg: tab.chartCfg, key: tab.chartKey });
+    expect(e1.chart.cfg).not.toBe(tab.chartCfg); // cloned into the entry
+    // re-save with a different chart → entry.chart updates in place
+    tab.chartCfg = { type: 'line', x: 0, y: [1], series: null };
+    saveQuery(s, tab, 'Chartd', save, 200);
+    expect(s.savedQueries[0].chart.cfg.type).toBe('line');
+    // re-save after the chart is cleared → entry.chart is dropped
+    tab.chartCfg = null;
+    saveQuery(s, tab, 'Chartd', save, 300);
+    expect(s.savedQueries[0].chart).toBeUndefined();
   });
   it('deleteSaved removes + clears tab pointers', () => {
     const s = createState(reader());
