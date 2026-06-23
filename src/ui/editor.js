@@ -10,10 +10,15 @@ import { activeTab } from '../state.js';
 // drags, leaving native text drag-within-the-textarea untouched.
 export const IDENT_MIME = 'application/x-asb-identifier';
 
-/** Paint tokenized SQL into `preEl` (whitespace as text, tokens as spans). */
-export function renderHighlightInto(preEl, sql) {
+/**
+ * Paint tokenized SQL into `preEl` (whitespace as text, tokens as spans).
+ * `opts` (optional) forwards dynamic keyword/function sets to the tokenizer so
+ * highlighting tracks the connected server's `system.keywords`/`functions`
+ * (#25); omitted → the tokenizer's built-in sets.
+ */
+export function renderHighlightInto(preEl, sql, opts) {
   preEl.replaceChildren();
-  for (const [t, v] of tokenize(sql)) {
+  for (const [t, v] of tokenize(sql, opts)) {
     if (t === 'ws') {
       preEl.appendChild(document.createTextNode(v));
     } else {
@@ -46,7 +51,10 @@ export function mountEditor(app, container) {
   container.replaceChildren(h('div', { class: 'sql-editor' }, gutter, area));
 
   const paint = (sql) => {
-    renderHighlightInto(pre, sql);
+    // Highlight with the connection's reference keyword/function sets when
+    // they've loaded (#25); before that, the tokenizer's built-ins.
+    const ref = app.refData;
+    renderHighlightInto(pre, sql, ref ? { keywords: ref.keywordSet, funcs: ref.funcSet } : undefined);
     gutter.replaceChildren(...gutterLines(sql));
   };
   const sync = () => {

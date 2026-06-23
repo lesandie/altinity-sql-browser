@@ -10,6 +10,12 @@ describe('renderHighlightInto', () => {
     expect(pre.querySelector('.sql-number').textContent).toBe('1');
     expect(pre.textContent.endsWith('\n')).toBe(true);
   });
+  it('forwards dynamic keyword/func sets to the tokenizer (#25)', () => {
+    const pre = document.createElement('pre');
+    renderHighlightInto(pre, 'FOO bar', { keywords: new Set(['FOO']), funcs: new Set(['bar']) });
+    expect(pre.querySelector('.sql-keyword').textContent).toBe('FOO');
+    expect(pre.querySelector('.sql-func').textContent).toBe('bar');
+  });
 });
 
 describe('mountEditor', () => {
@@ -26,6 +32,13 @@ describe('mountEditor', () => {
     expect(container.querySelector('.sql-editor')).not.toBeNull();
     expect(app.dom.editorTextarea.value).toBe('SELECT 1');
     expect(app.dom.editorGutter.children.length).toBe(1);
+  });
+  it('highlights with the connection reference sets when app.refData is present (#25)', () => {
+    const app = makeApp();
+    app.refData = { keywordSet: new Set(['FOO']), funcSet: new Set() };
+    app.activeTab().sql = 'FOO';
+    mountEditor(app, document.createElement('div'));
+    expect(app.dom.editorPre.querySelector('.sql-keyword').textContent).toBe('FOO');
   });
   it('typing updates the tab, marks dirty, repaints, and rerenders', () => {
     const { app, ta } = mount();

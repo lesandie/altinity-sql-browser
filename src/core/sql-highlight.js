@@ -26,8 +26,14 @@ export const SQL_FUNCS = new Set([
  * Tokenize SQL into [type, text] pairs. Types: comment, string, ident,
  * number, keyword, func, op, ws, other. The `ident` type covers backtick /
  * double-quoted identifiers and bare words that are neither keyword nor func.
+ *
+ * The optional second arg lets a caller override the keyword/function sets
+ * (#25) — e.g. the server's `system.keywords` / `system.functions` — so
+ * highlighting is version-correct. It is backward-compatible: existing callers
+ * pass nothing and get the built-in sets. `keywords` is matched
+ * case-insensitively (uppercased lookup); `funcs` is matched as-is.
  */
-export function tokenize(sql) {
+export function tokenize(sql, { keywords = SQL_KEYWORDS, funcs = SQL_FUNCS } = {}) {
   const out = [];
   let i = 0;
   const n = sql.length;
@@ -75,8 +81,8 @@ export function tokenize(sql) {
       const word = sql.slice(i, j);
       const upper = word.toUpperCase();
       let type = 'ident';
-      if (SQL_KEYWORDS.has(upper)) type = 'keyword';
-      else if (SQL_FUNCS.has(word)) type = 'func';
+      if (keywords.has(upper)) type = 'keyword';
+      else if (funcs.has(word)) type = 'func';
       out.push([type, word]);
       i = j;
       continue;

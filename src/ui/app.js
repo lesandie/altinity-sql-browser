@@ -17,6 +17,7 @@ import { buildExportDoc, parseImportDoc } from '../core/saved-io.js';
 import { toTSV, toCSV } from '../core/export.js';
 import { newResult, applyStreamLine } from '../core/stream.js';
 import { encodeShare } from '../core/share.js';
+import { assembleReferenceData, buildCompletions } from '../core/completions.js';
 import { generatePKCE, randomState } from '../core/pkce.js';
 import * as oauthCfg from '../net/oauth-config.js';
 import * as oauth from '../net/oauth.js';
@@ -279,8 +280,23 @@ export function createApp(env = {}) {
     } catch (e) {
       app.state.schemaError = String((e && e.message) || e);
     }
+    app.rebuildCompletions();
     renderSchema(app);
     updateBanner();
+  };
+  // Editor reference data + autocomplete candidates. Loaded once per connection
+  // (the keystroke rule, #25): keywords/functions drive both version-correct
+  // highlighting and the autocomplete list; completion then runs client-side.
+  app.refData = assembleReferenceData(null); // built-in fallback until loaded
+  app.rebuildCompletions = () => {
+    app.completions = buildCompletions(app.refData, app.state.schema);
+  };
+  app.rebuildCompletions();
+  app.loadReference = async () => {
+    await ensureConfig();
+    app.refData = assembleReferenceData(await ch.loadReferenceData(chCtx));
+    app.rebuildCompletions();
+    if (app.dom.editorSync) app.dom.editorSync(); // re-highlight with server keywords
   };
   // A prominent, dismissible banner for schema/auth failures — the schema-panel
   // text alone is easy to miss on first deploy. Driven by app.state.schemaError.
@@ -742,4 +758,5 @@ export function renderApp(app, helpers) {
   app.updateSaveBtn();
   app.loadVersion();
   app.loadSchema();
+  app.loadReference();
 }

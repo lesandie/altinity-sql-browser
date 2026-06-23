@@ -189,6 +189,37 @@ describe('loadVersion / loadSchema', () => {
   });
 });
 
+describe('loadReference / rebuildCompletions (#25)', () => {
+  it('loads server keywords + functions into refData and the completion list', async () => {
+    const e = env({ fetch: makeFetch([
+      [(u, sql) => /system\.keywords/.test(sql), resp({ json: { data: [{ keyword: 'PREWHERE' }] } })],
+      [(u, sql) => /system\.functions/.test(sql), resp({ json: { data: [{ name: 'toDate', is_aggregate: 0 }] } })],
+    ]) });
+    const app = createApp(e);
+    app.renderApp();
+    await app.loadReference();
+    expect(app.refData.keywordSet.has('PREWHERE')).toBe(true); // drives the tokenizer too
+    expect(app.refData.funcSet.has('toDate')).toBe(true);
+    expect(app.completions.some((c) => c.label === 'PREWHERE')).toBe(true);
+  });
+  it('starts with the built-in fallback before any load', () => {
+    const app = createApp(env());
+    expect(app.refData.keywordSet.has('SELECT')).toBe(true);
+    expect(app.completions.length).toBeGreaterThan(0);
+  });
+  it('rebuildCompletions folds in already-loaded schema columns', () => {
+    const app = createApp(env());
+    app.state.schema = [{ db: 'd', tables: [{ name: 't', columns: [{ name: 'c', type: 'UInt8' }] }] }];
+    app.rebuildCompletions();
+    expect(app.completions.some((c) => c.kind === 'column' && c.label === 'c' && c.parent === 't')).toBe(true);
+  });
+  it('loadReference tolerates being called before the editor mounts', async () => {
+    const app = createApp(env()); // no renderApp → no app.dom.editorSync
+    await expect(app.loadReference()).resolves.toBeUndefined();
+    expect(app.refData).toBeTruthy();
+  });
+});
+
 describe('query run', () => {
   function appForRun(routes, over) {
     const e = env({ fetch: makeFetch(routes), ...over });

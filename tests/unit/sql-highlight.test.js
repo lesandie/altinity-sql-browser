@@ -47,6 +47,16 @@ describe('tokenize', () => {
   it('emits "other" for unknown single chars', () => {
     expect(tokenize('@')).toEqual([['other', '@']]);
   });
+  it('accepts dynamic keyword/func sets, overriding the built-ins (#25)', () => {
+    const keywords = new Set(['FOO']);
+    const funcs = new Set(['bar']);
+    const toks = tokenize('FOO bar SELECT count', { keywords, funcs });
+    expect(toks).toContainEqual(['keyword', 'FOO']); // keyword match is case-insensitive
+    expect(toks).toContainEqual(['func', 'bar']);
+    // built-ins no longer classify once overridden
+    expect(toks).toContainEqual(['ident', 'SELECT']);
+    expect(toks).toContainEqual(['ident', 'count']);
+  });
 });
 
 describe('keyword/func sets', () => {

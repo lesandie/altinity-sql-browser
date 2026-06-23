@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
-  chUrl, authedFetch, queryJson, loadServerVersion, loadSchema, loadColumns, runQuery, killQuery,
+  chUrl, authedFetch, queryJson, loadServerVersion, loadSchema, loadColumns, loadReferenceData, runQuery, killQuery,
 } from '../../src/net/ch-client.js';
 import { sqlString } from '../../src/core/format.js';
 
@@ -183,6 +183,28 @@ describe('loadColumns', () => {
   it('handles missing data', async () => {
     const ctx = ctxWith(async () => jsonResp({}));
     expect(await loadColumns(ctx, 'db', 't', sqlString)).toEqual([]);
+  });
+});
+
+describe('loadReferenceData', () => {
+  it('loads keywords + function metadata from system tables', async () => {
+    const ctx = ctxWith(async (url, o) => (
+      o.body.includes('system.keywords')
+        ? jsonResp({ data: [{ keyword: 'SELECT' }, { keyword: 'PREWHERE' }] })
+        : jsonResp({ data: [{ name: 'count', is_aggregate: 1 }, { name: 'toDate', is_aggregate: 0 }] })
+    ));
+    const ref = await loadReferenceData(ctx);
+    expect(ref.keywords).toEqual(['SELECT', 'PREWHERE']);
+    expect(ref.functions.count).toEqual({ kind: 'agg', sig: 'count()', ret: '', desc: '' });
+    expect(ref.functions.toDate.kind).toBe('fn'); // is_aggregate 0 → plain function
+  });
+  it('returns null pieces when a system table is missing/denied (best-effort)', async () => {
+    const ctx = ctxWith(async () => textResp('Code: 60. DB::Exception: Unknown table', false, 500));
+    expect(await loadReferenceData(ctx)).toEqual({ keywords: null, functions: null });
+  });
+  it('tolerates an empty data shape', async () => {
+    const ctx = ctxWith(async () => jsonResp({}));
+    expect(await loadReferenceData(ctx)).toEqual({ keywords: [], functions: {} });
   });
 });
 

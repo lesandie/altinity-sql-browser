@@ -138,6 +138,41 @@ export async function loadColumns(ctx, db, table, sqlString) {
   return (json.data || []).map((r) => ({ name: r.name, type: r.type, comment: r.comment || '' }));
 }
 
+// Run a query for its `data` rows, returning null on ANY error. Editor
+// reference data is best-effort: a missing system table on older ClickHouse (or
+// a denied SELECT) must degrade gracefully, never surface as a query error.
+async function tryQueryData(ctx, sql) {
+  try {
+    const json = await queryJson(ctx, sql);
+    return json.data || [];
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Load editor reference data once per connection: the server's keyword list and
+ * function metadata, so syntax highlighting + autocomplete are version-correct.
+ * This is the ONLY reference fetch — completion then runs off this in-memory
+ * data, never a query per keystroke (the keystroke rule, #25). Each source is
+ * best-effort; a missing/denied system table yields null for that piece and the
+ * caller (assembleReferenceData) falls back to the built-in set.
+ * Returns { keywords: string[]|null, functions: {name:{kind,sig,ret,desc}}|null }.
+ */
+export async function loadReferenceData(ctx) {
+  const kw = await tryQueryData(ctx, 'SELECT keyword FROM system.keywords FORMAT JSON');
+  const keywords = kw ? kw.map((r) => r.keyword) : null;
+  const fn = await tryQueryData(ctx, 'SELECT name, is_aggregate FROM system.functions FORMAT JSON');
+  let functions = null;
+  if (fn) {
+    functions = {};
+    for (const r of fn) {
+      functions[r.name] = { kind: r.is_aggregate ? 'agg' : 'fn', sig: r.name + '()', ret: '', desc: '' };
+    }
+  }
+  return { keywords, functions };
+}
+
 /**
  * Run a query in streaming mode (JSONStringsEachRowWithProgress) or raw mode
  * (TSV/JSON). `onLine(parsedObj)` is called per stream object in streaming
