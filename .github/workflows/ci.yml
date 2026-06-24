@@ -26,3 +26,27 @@ jobs:
           name: sql-browser-dist
           path: dist/sql.html
           retention-days: 14
+
+  # Real-browser regression tests (Playwright). Runs on Linux runners where the
+  # Gecko/Chromium binaries launch normally — separate from the unit suite so a
+  # missing browser binary can't mask a unit failure, and vice versa. The
+  # harness imports /src directly over a python http.server (started by the
+  # Playwright config's webServer), so no build step is needed.
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --no-audit --no-fund
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium firefox
+      - name: E2E (Playwright — Chromium + Firefox)
+        run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: ${{ failure() }}
+        with:
+          name: playwright-results
+          path: test-results/
+          retention-days: 14
