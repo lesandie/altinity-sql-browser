@@ -70,13 +70,15 @@ describe('parseImportDoc', () => {
     expect(queries[0].view).toBe('json');
     expect(queries[1].view).toBeUndefined();
   });
-  it('keeps a string description and drops a non-string one', () => {
+  it('trims a string description, dropping a whitespace-only or non-string one', () => {
     const { queries } = parseImportDoc(env({ queries: [
-      { name: 'A', sql: '1', description: 'a note' },
-      { name: 'B', sql: '2', description: 123 },   // non-string → dropped
+      { name: 'A', sql: '1', description: '  a note  ' }, // trimmed
+      { name: 'B', sql: '2', description: 123 },          // non-string → dropped
+      { name: 'C', sql: '3', description: '   ' },        // whitespace-only → dropped (#1 review)
     ] }));
     expect(queries[0].description).toBe('a note');
     expect(queries[1].description).toBeUndefined();
+    expect(queries[2].description).toBeUndefined();
   });
   it('throws a user message for each invalid envelope', () => {
     expect(() => parseImportDoc('{not json')).toThrow('Not a valid JSON file');

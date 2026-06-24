@@ -5,7 +5,7 @@
 // effect goes through an injected seam (app.saveJSON / app.saveStr /
 // app.downloadFile / app.FileReader / app.document), so it is fully testable.
 
-import { h } from './dom.js';
+import { h, zoomScale } from './dom.js';
 import { Icon } from './icons.js';
 import { flashToast } from './toast.js';
 import { renderSavedHistory } from './saved-history.js';
@@ -66,7 +66,7 @@ export function renderLibraryTitle(app) {
 /** Open the File dropdown anchored under the File button (Esc / outside-click close). */
 export function openFileMenu(app) {
   if (app.dom.fileMenu) return;
-  const doc = app.document;
+  const doc = app.document || document;
   const list = app.state.savedQueries;
   const close = () => {
     doc.removeEventListener('keydown', onKey, true);
@@ -90,8 +90,8 @@ export function openFileMenu(app) {
     item(Icon.download(), 'Save JSON', '.json', () => { close(); saveJsonAction(app); }),
     sep(),
     h('div', { class: 'fm-section' }, 'Load from file'),
-    item(Icon.upload(), 'Replace…', null, () => { close(); replaceInput.click(); }),
-    item(Icon.upload(), 'Append…', null, () => { close(); appendInput.click(); }),
+    item(Icon.upload(), 'Replace…', null, () => { replaceInput.click(); close(); }),
+    item(Icon.upload(), 'Append…', null, () => { appendInput.click(); close(); }),
     sep(),
     h('div', { class: 'fm-section' }, 'Share / publish'),
     item(Icon.download(), 'Download Markdown', '.md', () => { close(); downloadAction(app, 'md'); }),
@@ -104,9 +104,13 @@ export function openFileMenu(app) {
   app.dom.fileMenu = menu;
   doc.body.appendChild(overlay);
   const r = app.dom.fileBtn.getBoundingClientRect();
+  // Bridge the shipped html{zoom}: getBoundingClientRect is post-zoom px, but a
+  // fixed element's top/left are re-scaled by zoom on paint — divide by scale so
+  // the menu anchors under the button (same as the editor popovers via zoomScale).
+  const scale = zoomScale(app.dom.fileBtn);
   menu.style.position = 'fixed';
-  menu.style.top = (r.bottom + 6) + 'px';
-  menu.style.left = Math.max(8, r.left) + 'px';
+  menu.style.top = (r.bottom / scale + 6) + 'px';
+  menu.style.left = Math.max(8, r.left / scale) + 'px';
   doc.body.appendChild(menu);
   doc.addEventListener('keydown', onKey, true);
 }
@@ -220,7 +224,7 @@ function confirmNew(app) {
 }
 
 function openConfirm(app, { title, body, confirmLabel, onConfirm }) {
-  const doc = app.document;
+  const doc = app.document || document;
   const close = () => {
     doc.removeEventListener('keydown', onKey, true);
     if (app.dom.fileDialog) { app.dom.fileDialog.remove(); app.dom.fileDialog = null; }
