@@ -20,6 +20,13 @@ const BUILTIN_FORMATS = [
   'TSV', 'TSVWithNames', 'Values', 'Vertical', 'XML',
 ];
 
+// Clause keywords that share a name with an obscure function — typing the prefix
+// almost always means the clause, so let the keyword win that tie once the user
+// has typed enough to mean it. Deliberately tiny: most keyword/function name
+// clashes (min, max, replace, left, in, like, …) should keep favoring the
+// function, so only FORMAT (clause vs the rarely-used format() function) is here.
+const PREFER_KEYWORD = new Set(['FORMAT']);
+
 // Built-in hover docs for a few ClickHouse-specific keywords (#27). There's no
 // server table for keyword docs, so this static set covers the high-value ones;
 // function docs come from system.functions (loaded per connection).
@@ -78,7 +85,9 @@ export function buildCompletions(ref, schema) {
     // the parenthesised params — `(s, offset[, …])`, not `substring(s, …)` (#26).
     const sig = m.sig || name + '()';
     const paren = sig.indexOf('(');
-    items.push({ label: name, kind, insert: name + '(', detail: paren >= 0 ? sig.slice(paren) : sig, doc: m.desc || '', ret: m.ret || '' });
+    // Insert `name()` and (via caretBack) leave the caret between the parens — a
+    // matched pair like typing `(` gives, so accepting never strands a lone `(`.
+    items.push({ label: name, kind, insert: name + '()', caretBack: 1, detail: paren >= 0 ? sig.slice(paren) : sig, doc: m.desc || '', ret: m.ret || '' });
   }
   for (const name of ref.formats || []) {
     items.push({ label: name, kind: 'format', insert: name, detail: 'format' });
@@ -157,7 +166,12 @@ export function rankCompletions(items, ctx) {
     if (idx === -1) continue;
     let score = idx === 0 ? 0 : 100 + idx;              // prefix beats substring
     if (it.kind === 'column' || it.kind === 'table') score -= 10; // boost schema
-    if (it.kind === 'keyword') score += 5;
+    if (it.kind === 'keyword') {
+      // A clause keyword sharing a name with an obscure function wins the tie
+      // once enough of it is typed (≥3 chars, prefix) — e.g. `for` → FORMAT, not
+      // the format() function or formatDateTime; shorter prefixes stay neutral.
+      score += (idx === 0 && w.length >= 3 && PREFER_KEYWORD.has(it.label.toUpperCase())) ? -50 : 5;
+    }
     score += (l.length - w.length) * 0.1;               // prefer closer length
     scored.push({ it, score });
   }

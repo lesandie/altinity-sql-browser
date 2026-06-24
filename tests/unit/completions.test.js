@@ -81,7 +81,7 @@ describe('buildCompletions', () => {
     const items = buildCompletions(ref, schema);
     expect(items.find((i) => i.label === 'SELECT')).toMatchObject({ kind: 'keyword', insert: 'SELECT' });
     // detail shows only the params (the label already shows the name) — #26
-    expect(items.find((i) => i.label === 'count')).toMatchObject({ kind: 'agg', insert: 'count(', detail: '([x])', ret: 'UInt64' });
+    expect(items.find((i) => i.label === 'count')).toMatchObject({ kind: 'agg', insert: 'count()', caretBack: 1, detail: '([x])', ret: 'UInt64' });
     expect(items.find((i) => i.label === 'toDate')).toMatchObject({ kind: 'cast', detail: '(x)' });
     expect(items.find((i) => i.label === 'lower')).toMatchObject({ kind: 'fn', detail: '()' }); // sig fallback → just ()
     expect(items.find((i) => i.label === 'plus')).toMatchObject({ kind: 'fn', detail: 'a + b' }); // no '(' → sig kept as-is
@@ -182,5 +182,18 @@ describe('FORMAT-clause completion', () => {
       .toEqual(['JSONCompact', 'JSONEachRow']);
     // general completion never surfaces formats
     expect(rankCompletions(items, { word: 'json', qualified: false, afterFormat: false }).some((i) => i.kind === 'format')).toBe(false);
+  });
+  it('prefers the FORMAT clause keyword over format()/formatDateTime once ≥3 chars are typed', () => {
+    const ref = assembleReferenceData({
+      keywords: ['FORMAT', 'FROM'],
+      functions: { format: { kind: 'fn', sig: 'format(p, …)' }, formatDateTime: { kind: 'fn', sig: 'formatDateTime(t)' } },
+    });
+    const items = buildCompletions(ref, []);
+    // 'for' → the keyword wins
+    const top = rankCompletions(items, { word: 'for', qualified: false, afterFormat: false });
+    expect(top[0]).toMatchObject({ label: 'FORMAT', kind: 'keyword' });
+    // too short to disambiguate → keyword is not specially boosted (function leads)
+    const short = rankCompletions(items, { word: 'fo', qualified: false, afterFormat: false });
+    expect(short[0].kind).not.toBe('keyword');
   });
 });

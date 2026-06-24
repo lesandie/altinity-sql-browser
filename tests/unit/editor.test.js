@@ -487,8 +487,8 @@ describe('bracket matching + auto-close (#24)', () => {
 describe('autocomplete dropdown (#26)', () => {
   const CANDIDATES = [
     { label: 'SELECT', kind: 'keyword', insert: 'SELECT', detail: 'keyword' },
-    { label: 'count', kind: 'agg', insert: 'count(', detail: 'count([x])', ret: 'UInt64', doc: 'Counts rows.' },
-    { label: 'concat', kind: 'fn', insert: 'concat(', detail: 'concat(s, …)', ret: 'String' }, // sig, no doc
+    { label: 'count', kind: 'agg', insert: 'count()', caretBack: 1, detail: 'count([x])', ret: 'UInt64', doc: 'Counts rows.' },
+    { label: 'concat', kind: 'fn', insert: 'concat()', caretBack: 1, detail: 'concat(s, …)', ret: 'String' }, // sig, no doc
     { label: 'cobalt', kind: 'mystery', insert: 'cobalt', detail: '?' }, // unknown kind → glyph fallback
     { label: 'ontime', kind: 'table', insert: 'ontime', detail: 'table', parent: 'airline' },
     { label: 'Year', kind: 'column', insert: 'Year', detail: 'UInt16', parent: 'ontime' },
@@ -540,7 +540,7 @@ describe('autocomplete dropdown (#26)', () => {
     typeAt(ta, 'ontime.', 7);
     expect(labels(container).sort()).toEqual(['Month', 'Year']);
   });
-  it('arrows move the active row (wrapping); Enter accepts and a function inserts name(', () => {
+  it('arrows move the active row (wrapping); Enter accepts a function as name() with the caret inside', () => {
     const { app, container, ta } = mounted();
     expect(app.dom.editorComplete.isOpen()).toBe(false);
     typeAt(ta, 'co', 2);
@@ -554,7 +554,9 @@ describe('autocomplete dropdown (#26)', () => {
     press(ta, 'Enter');
     expect(app.dom.editorComplete.isOpen()).toBe(false);
     expect(dropdown(container)).toBeNull();
-    expect(ta.value).toContain(accepted + '('); // count/concat → name(
+    expect(ta.value).toContain(accepted + '()');        // function → matched name()
+    expect(ta.value[ta.selectionStart - 1]).toBe('(');  // caret left between the parens
+    expect(ta.value[ta.selectionStart]).toBe(')');
   });
   it('Tab accepts a column as-is; Escape dismisses', () => {
     const { container, ta } = mounted();

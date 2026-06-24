@@ -148,11 +148,14 @@ export function mountEditor(app, container) {
     gutter.scrollTop = ta.scrollTop;
   };
   // Set the textarea selection to a range and replace it (undoable, fires input).
-  const replaceRange = (start, end, text) => {
+  // `caretBack` pulls the caret left from the end of the inserted text — used by
+  // function completion to land it between the just-inserted `()`.
+  const replaceRange = (start, end, text, caretBack = 0) => {
     ta.focus();
     ta.selectionStart = start;
     ta.selectionEnd = end;
     applyEdit(ta, text);
+    if (caretBack) ta.selectionStart = ta.selectionEnd = start + text.length - caretBack;
   };
   // Apply a structural bracket edit (#24) while PRESERVING the native undo stack.
   // A direct `ta.value = …` assignment wipes ⌘Z, so instead express the edit as a

@@ -7,7 +7,8 @@
 // host = {
 //   textarea,
 //   getCompletions(),                 // () => candidate list (or [])
-//   replaceRange(from, to, text),     // undoable edit that fires 'input'
+//   replaceRange(from, to, text, caretBack?), // undoable edit; caretBack pulls
+//                                              // the caret left from the end
 //   caretAnchor(),                    // () => {x, y, lineHeight} in screen px
 //   appendPopover(el),                // mount the dropdown
 //   suppressed(),                     // () => true to stay hidden (e.g. find open)
@@ -77,7 +78,7 @@ export function createComplete(host) {
 
   const accept = (item) => {
     accepting = true; // the resulting 'input' must not re-trigger the dropdown
-    host.replaceRange(state.ctx.from, state.ctx.to, item.insert);
+    host.replaceRange(state.ctx.from, state.ctx.to, item.insert, item.caretBack || 0);
     accepting = false;
     hide();
   };
