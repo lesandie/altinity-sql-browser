@@ -85,7 +85,7 @@ describe('file menu', () => {
     ];
     openFileMenu(app);
     expect([...document.querySelectorAll('.fm-label')].map((l) => l.textContent)).toEqual(
-      ['New Library', 'Save JSON', 'Replace…', 'Append…', 'Download Markdown', 'Download SQL']);
+      ['New Library', 'Save JSON', 'Open…', 'Append…', 'Download Markdown', 'Download SQL']);
     expect([...document.querySelectorAll('.fm-section')].map((s) => s.textContent)).toEqual(
       ['Save library', 'Load from file', 'Share / publish']);
     expect(document.querySelector('.fm-count').textContent).toBe('2 queries in Library');
@@ -158,8 +158,8 @@ describe('Save JSON / Markdown / SQL downloads', () => {
   });
 });
 
-describe('Replace / Append (JSON only)', () => {
-  it('Replace item closes the menu and opens the picker; a non-empty library confirms first', () => {
+describe('Open / Append (JSON only)', () => {
+  it('Open item closes the menu and opens the picker; a non-empty library confirms first', () => {
     const app = mount({ FileReader: fakeReader(envFile([{ id: 'x', name: 'New', sql: 'S' }, { name: 'New2', sql: 'S2' }])) });
     app.state.savedQueries = [
       { id: 's1', name: 'Old', sql: '1', favorite: false },
@@ -168,24 +168,24 @@ describe('Replace / Append (JSON only)', () => {
     openFileMenu(app);
     const replaceInput = picker(0);
     replaceInput.click = vi.fn();
-    click(item(/Replace/));
+    click(item(/Open/));
     expect(document.querySelector('.file-menu')).toBeNull(); // menu closed
     expect(replaceInput.click).toHaveBeenCalled();
     // user picks a file → confirm dialog (current library non-empty, plural copy)
     Object.defineProperty(replaceInput, 'files', { configurable: true, value: [{ name: 'team.json' }] });
     replaceInput.dispatchEvent(new Event('change', { bubbles: true }));
     const dialog = document.querySelector('.fm-dialog-card');
-    expect(dialog.textContent).toContain('Replace saved queries?');
+    expect(dialog.textContent).toContain('Open and replace current library?');
     expect(dialog.textContent).toContain('contains 2 queries');
     expect(dialog.textContent).toContain('current 2 saved queries');
     click(document.querySelector('.fm-dialog-confirm'));
     expect(app.state.savedQueries.map((q) => q.name)).toEqual(['New', 'New2']);
     expect(app.state.libraryName).toBe('team');
     expect(app.updateSaveBtn).toHaveBeenCalled();
-    expect(toast()).toBe('Replaced library · 2 queries');
+    expect(toast()).toBe('Opened library · 2 queries');
   });
 
-  it('Replace into an empty library loads directly (no confirm); cancelling the picker is a no-op', () => {
+  it('Open into an empty library loads directly (no confirm); cancelling the picker is a no-op', () => {
     const app = mount({ FileReader: fakeReader(envFile([{ name: 'New', sql: 'S' }])) });
     openFileMenu(app);
     const input = picker(0);
@@ -216,7 +216,7 @@ describe('Replace / Append (JSON only)', () => {
     expect(toast()).toBe('Added 1 · updated 0 · skipped 1'); // the duplicate A is skipped
   });
 
-  it('Replace / Append with no queries in the file → error toast', () => {
+  it('Open / Append with no queries in the file → error toast', () => {
     const app = mount({ FileReader: fakeReader(envFile([])) });
     openFileMenu(app);
     Object.defineProperty(picker(0), 'files', { configurable: true, value: [{ name: 'empty.json' }] });

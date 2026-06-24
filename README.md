@@ -17,7 +17,7 @@ held at **100% test coverage**.
 Try it live on the Antalya demo cluster: **https://antalya.demo.altinity.cloud/sql**.
 The [**ontime chart demo**](docs/ONTIME-CHART-DEMO.md) is a ready-made library of 10
 queries (load [`examples/ontime-charts.json`](examples/ontime-charts.json) via
-**File ▾ → Replace**) that walks through every chart type and feature against the public
+**File ▾ → Open**) that walks through every chart type and feature against the public
 `ontime` flight dataset.
 
 ## How it works
@@ -88,7 +88,7 @@ an unsaved-changes dot, managed from the header **File ▾** menu:
   `altinity-sql-browser/saved-queries` envelope (lossless: keeps id, name,
   description, sql, favorite, chart, view). The filename derives from the Library
   name; saving clears the unsaved-changes dot.
-- **Replace… / Append…** — load a `.json` file: Replace swaps the Library and
+- **Open… / Append…** — load a `.json` file: Open swaps the Library and
   adopts the file's base name (confirms when the current Library is non-empty);
   Append merges via the existing dedupe and reports `Added N · updated N ·
   skipped N`. **JSON is the only importable format**, and imported SQL is never
@@ -101,7 +101,7 @@ an unsaved-changes dot, managed from the header **File ▾** menu:
 The Library name is editable inline (click it in the header) and is persisted
 separately from the queries. The **•** dot appears after any change that hasn't
 been written to a file yet (save/rename/delete/favorite/append/rename) and clears
-on Save JSON / Replace / New.
+on Save JSON / Open / New.
 
 ## Quick start (development)
 

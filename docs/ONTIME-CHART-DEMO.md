@@ -17,7 +17,7 @@ dataset (`ontime`, ~230M rows, 1987–2025) on the Antalya demo cluster.
    or use the credentials box).
 2. Download [`ontime-charts.json`](https://raw.githubusercontent.com/Altinity/altinity-sql-browser/main/examples/ontime-charts.json)
    (right-click → Save link as…).
-3. In the header, click **File ▾ → Replace…** and pick the file. The library is renamed
+3. In the header, click **File ▾ → Open…** and pick the file. The library is renamed
    **ontime-charts** and fills with 10 saved queries (confirm the replace if you already
    had queries saved).
 4. Click any query in the **Library** panel — it runs and opens straight into its chart.

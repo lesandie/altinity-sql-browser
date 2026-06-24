@@ -1,5 +1,5 @@
 // The header "File ▾" menu: the saved-query collection treated as a savable
-// document ("the Library"). New / Save (JSON) / Replace / Append, plus one-way
+// document ("the Library"). New / Save (JSON) / Open (replace) / Append, plus one-way
 // Markdown/SQL "share" downloads, an editable library name, and an
 // unsaved-changes dot. Render module over the `app` controller; every side
 // effect goes through an injected seam (app.saveJSON / app.saveStr /
@@ -90,7 +90,7 @@ export function openFileMenu(app) {
     item(Icon.download(), 'Save JSON', '.json', () => { close(); saveJsonAction(app); }),
     sep(),
     h('div', { class: 'fm-section' }, 'Load from file'),
-    item(Icon.upload(), 'Replace…', null, () => { replaceInput.click(); close(); }),
+    item(Icon.upload(), 'Open…', null, () => { replaceInput.click(); close(); }),
     item(Icon.upload(), 'Append…', null, () => { appendInput.click(); close(); }),
     sep(),
     h('div', { class: 'fm-section' }, 'Share / publish'),
@@ -166,7 +166,7 @@ function onReplaceFile(app, file) {
 function doReplace(app, qs, fileName) {
   replaceLibrary(app.state, qs, fileName, app.saveJSON, app.saveStr);
   afterLibraryChange(app);
-  flashToast('Replaced library · ' + queries(qs.length), { document: app.document });
+  flashToast('Opened library · ' + queries(qs.length), { document: app.document });
 }
 
 function onAppendFile(app, file) {
@@ -202,12 +202,12 @@ function afterLibraryChange(app) {
 function confirmReplace(app, fileName, qs) {
   const cur = app.state.savedQueries.length;
   openConfirm(app, {
-    title: 'Replace saved queries?',
+    title: 'Open and replace current library?',
     body: [h('span', { class: 'fm-mono' }, fileName), ' contains ', h('b', null, String(qs.length)), ' ',
-      qs.length === 1 ? 'query' : 'queries', '. Loading it will replace your current ',
+      qs.length === 1 ? 'query' : 'queries', '. Opening it will replace your current ',
       h('b', null, String(cur)), ' saved ', cur === 1 ? 'query' : 'queries',
       '. Open editor tabs are unaffected. Use Append instead to keep both.'],
-    confirmLabel: 'Replace',
+    confirmLabel: 'Open',
     onConfirm: () => doReplace(app, qs, fileName),
   });
 }
