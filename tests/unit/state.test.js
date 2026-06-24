@@ -154,6 +154,10 @@ describe('saved queries', () => {
     expect(s.savedQueries[0].description).toBe('a note');
     renameSaved(s, 's1', 'A', '', save); // explicit empty → cleared
     expect('description' in s.savedQueries[0]).toBe(false);
+    renameSaved(s, 's1', 'A', '  re  ', save); // re-set
+    expect(s.savedQueries[0].description).toBe('re');
+    renameSaved(s, 's1', 'A', null, save); // null (not undefined) → cleared, not stored as 'null' (#4 review)
+    expect('description' in s.savedQueries[0]).toBe(false);
   });
   it('toggleFavorite flips the flag; sortedSaved puts favorites first (stable)', () => {
     const s = createState(reader());

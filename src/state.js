@@ -130,7 +130,7 @@ export function renameSaved(state, id, name, description, save = saveJSON) {
   if (!entry || !nm) return;
   entry.name = nm;
   if (description !== undefined) {
-    const desc = String(description).trim();
+    const desc = String(description || '').trim(); // match saveQuery: null/non-string → '' → cleared
     if (desc) entry.description = desc; else delete entry.description;
   }
   for (const t of tabsForSaved(state, id)) t.name = nm;
