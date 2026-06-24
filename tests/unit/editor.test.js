@@ -141,18 +141,19 @@ describe('insertAtCursor', () => {
     const app = makeApp();
     expect(() => insertAtCursor(app, 'x')).not.toThrow();
   });
-  it('uses execCommand(insertText) when available, skipping the manual splice', () => {
+  it('tries execCommand first but splices manually when it is a no-op (Firefox <textarea>)', () => {
     const app = makeApp();
     mountEditor(app, document.createElement('div'));
     const ta = app.dom.editorTextarea;
     ta.value = 'AB';
     ta.selectionStart = ta.selectionEnd = 1;
-    const spy = vi.fn(() => true);
+    const spy = vi.fn(() => true); // returns true but never edits — Firefox's quirk
     document.execCommand = spy;
     try {
       insertAtCursor(app, 'x');
-      expect(spy).toHaveBeenCalledWith('insertText', false, 'x');
-      expect(ta.value).toBe('AB'); // execCommand owns the insert; manual splice skipped
+      expect(spy).toHaveBeenCalledWith('insertText', false, 'x'); // execCommand attempted first
+      expect(ta.value).toBe('AxB'); // …and since nothing changed, the manual splice lands the text
+      expect(ta.selectionStart).toBe(2); // caret left right after the inserted text
     } finally {
       delete document.execCommand;
     }

@@ -16,13 +16,19 @@
   <!-- Mount the real editor module with a minimal stub controller. No bundling:
        the browser resolves the /src ESM graph directly. -->
   <script type="module">
-    import { mountEditor } from '/src/ui/editor.js';
+    import { mountEditor, insertAtCursor, replaceEditor } from '/src/ui/editor.js';
     import { createState } from '/src/state.js';
 
     const state = createState({ loadStr: (k, d) => d, loadJSON: (k, d) => d });
     const app = { state, dom: {}, actions: { rerenderTabs() {}, updateSaveBtn() {} } };
     window.__app = app;
     mountEditor(app, document.getElementById('host'));
+
+    // Expose the real insertion primitives the schema double-clicks use, so the
+    // e2e can drive them synchronously (inside a real dblclick handler) — that's
+    // the gesture/selection context where Firefox's execCommand path misbehaves.
+    window.__insertAtCursor = (t) => insertAtCursor(app, t);
+    window.__replaceEditor = (t) => replaceEditor(app, t);
 
     // Set editor content the way typing/replace does (drives paint()).
     window.__setSql = (sql) => {

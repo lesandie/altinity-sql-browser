@@ -5,8 +5,8 @@ import { defineConfig } from '@playwright/test';
 // behind the selection when a scrollbar shrinks the textarea's client box —
 // can only be caught in a real engine. These run separately from `npm test`.
 //
-// Setup once per machine: `npx playwright install chromium`.
-// Run: `npm run test:e2e`.
+// Setup once per machine: `npx playwright install chromium firefox`.
+// Run all engines: `npm run test:e2e`. One engine: `npm run test:e2e -- --project=firefox`.
 export default defineConfig({
   testDir: './tests/e2e',
   testMatch: '**/*.spec.js',
@@ -20,6 +20,11 @@ export default defineConfig({
   },
   use: {
     baseURL: 'http://127.0.0.1:5599',
-    browserName: 'chromium',
   },
+  // Render-layer + DOM-API bugs are engine-specific (e.g. Firefox's
+  // execCommand('insertText') on <textarea>), so the suite runs on both engines.
+  projects: [
+    { name: 'chromium', use: { browserName: 'chromium' } },
+    { name: 'firefox', use: { browserName: 'firefox' } },
+  ],
 });

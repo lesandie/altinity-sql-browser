@@ -168,12 +168,13 @@ export function mountEditor(app, container) {
       ta.focus();
       ta.selectionStart = from;
       ta.selectionEnd = to;
-      let ok = false;
       try {
-        ok = ins ? ta.ownerDocument.execCommand('insertText', false, ins)
-          : ta.ownerDocument.execCommand('delete', false);
-      } catch { ok = false; }
-      if (!ok) { ta.value = edit.value; ta.dispatchEvent(new Event('input')); }
+        if (ins) ta.ownerDocument.execCommand('insertText', false, ins);
+        else ta.ownerDocument.execCommand('delete', false);
+      } catch { /* unsupported */ }
+      // Same Firefox guard as applyEdit: execCommand can report success without
+      // touching the <textarea>, so fall back on the *value*, not the return.
+      if (ta.value === before) { ta.value = edit.value; ta.dispatchEvent(new Event('input')); }
     }
     ta.selectionStart = edit.selStart;
     ta.selectionEnd = edit.selEnd;
@@ -324,17 +325,20 @@ export function mountEditor(app, container) {
 }
 
 /**
- * Replace the textarea's current selection with `text`. Uses
- * execCommand('insertText') so the edit joins the native undo stack (⌘Z / ⌘⇧Z);
- * falls back to a manual splice + 'input' dispatch where execCommand is absent
- * (older browsers, happy-dom). execCommand fires 'input' itself, so either path
- * runs the input listener that syncs tab.sql + repaints.
+ * Replace the textarea's current selection with `text`. Prefers
+ * execCommand('insertText') so the edit joins the native undo stack (⌘Z / ⌘⇧Z),
+ * then falls back to a manual splice + 'input' dispatch. The fallback triggers
+ * whenever execCommand didn't actually change the value — it's absent (happy-dom)
+ * OR a no-op: Firefox returns `true` from execCommand('insertText') on a
+ * <textarea> yet inserts nothing, which is why a schema double-click did nothing
+ * and left the caret stranded. Checking the value (not execCommand's return)
+ * makes the insert land and keeps the caret + 'input'-driven highlight in sync.
  */
 function applyEdit(ta, text) {
   ta.focus();
-  let ok = false;
-  try { ok = ta.ownerDocument.execCommand('insertText', false, text); } catch { ok = false; }
-  if (ok) return;
+  const before = ta.value;
+  try { ta.ownerDocument.execCommand('insertText', false, text); } catch { /* unsupported */ }
+  if (ta.value !== before) return; // the edit landed via execCommand
   const { selectionStart: s, selectionEnd: e } = ta;
   ta.value = ta.value.slice(0, s) + text + ta.value.slice(e);
   ta.selectionStart = ta.selectionEnd = s + text.length;
