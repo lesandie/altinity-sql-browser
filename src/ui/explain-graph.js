@@ -9,6 +9,7 @@ import { h, s } from './dom.js';
 import { Icon } from './icons.js';
 import { parseDot } from '../core/dot.js';
 import { dagreLayout } from '../core/dot-layout.js';
+import { qualifyIdent } from '../core/format.js';
 import { fitBox, zoomBox, panBox, viewBoxStr } from '../core/panzoom.js';
 
 const ZOOM_STEP = 1.2; // per wheel notch / button press
@@ -195,11 +196,13 @@ export function openPipelineFullscreen(app, rawText) {
 }
 
 // Clicking an object runs SHOW CREATE for it, dropping the (formatted) DDL into
-// the editor — the same action as a shift-click in the schema tree. External
-// dictionary-source leaves have no DDL.
+// the editor — the same action as a shift-click in the schema tree. The node
+// carries `db`/`name` separately (from buildSchemaGraph via dagreLayout), so each
+// part is quoted independently — non-bare names (`…snappy.parquet`) stay valid SQL
+// without re-splitting the id. External dictionary-source leaves have no DDL.
 const schemaClick = (app) => (n) => {
   if (!n.id || n.id.startsWith('ext:')) return;
-  app.actions.insertCreate(n.id);
+  app.actions.insertCreate(qualifyIdent(n.db, n.name));
 };
 
 /** Fullscreen schema-lineage graph. */

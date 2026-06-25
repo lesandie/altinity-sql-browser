@@ -91,6 +91,21 @@ describe('buildCompletions', () => {
     expect(items.some((i) => i.label === 'pending')).toBe(true);          // table listed
     expect(items.some((i) => i.kind === 'column' && i.parent === 'pending')).toBe(false); // no columns
     expect(items.find((i) => i.label === 'empty')).toMatchObject({ kind: 'db' });
+    // bare names insert verbatim (label === insert)
+    expect(items.find((i) => i.label === 'ontime')).toMatchObject({ insert: 'ontime' });
+  });
+
+  it('backtick-quotes the insert for non-bare db/table/column names (label stays bare)', () => {
+    const schema = [{
+      db: 'target_all',
+      tables: [{ name: 'part-0.snappy.parquet', columns: [{ name: 'odd col', type: 'String' }] }],
+    }];
+    const items = buildCompletions(ref, schema);
+    expect(items.find((i) => i.label === 'target_all')).toMatchObject({ kind: 'db', insert: 'target_all' });
+    expect(items.find((i) => i.label === 'part-0.snappy.parquet'))
+      .toMatchObject({ kind: 'table', insert: '`part-0.snappy.parquet`' });
+    expect(items.find((i) => i.label === 'odd col'))
+      .toMatchObject({ kind: 'column', insert: '`odd col`' });
   });
   it('handles a null schema', () => {
     const items = buildCompletions(ref, null);

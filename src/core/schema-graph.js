@@ -71,9 +71,16 @@ export function parseEngineRef(engine, engineFull) {
   return null;
 }
 
-// A *reference* may already be `db.table` or a bare `table`; an actual row's id is
-// always `database.name` (table names like `.inner_id.<uuid>` contain dots).
+// A *reference* whose name MIGHT already be `db.table` (MV target / EXPLAIN AST
+// source) — the dot heuristic decides. Ambiguous for table names that themselves
+// contain dots, but those paths only ever *match against* known ids, so a miss
+// drops an edge rather than mis-linking.
 const qualify = (db, name) => (name && name.includes('.') ? name : db + '.' + name);
+// A reference whose db is always supplied separately (dependencies_*, engine
+// args, table-focus center) — join unconditionally so a dotted table name
+// (`…snappy.parquet`) keeps its db prefix instead of being mistaken for an
+// already-qualified ref. Always emits a dot (like rowId) so node() can split it.
+const joinId = (db, name) => db + '.' + name;
 const rowId = (r) => r.database + '.' + r.name;
 
 /**
@@ -129,7 +136,7 @@ export function buildSchemaGraph(rows, focus) {
     seen.add(k);
     edges.push({ from, to, kind });
   };
-  const zip = (dbs, names) => (names || []).map((nm, i) => qualify((dbs && dbs[i]) || '', nm));
+  const zip = (dbs, names) => (names || []).map((nm, i) => joinId((dbs && dbs[i]) || '', nm));
 
   for (const t of tables) {
     const id = rowId(t);
@@ -154,7 +161,7 @@ export function buildSchemaGraph(rows, focus) {
     } else if (kind === 'distributed' || kind === 'buffer' || kind === 'merge') {
       const ref = parseEngineRef(t.engine, t.engine_full);
       if (ref && ref.table) {
-        const refId = qualify(ref.db || t.database, ref.table);
+        const refId = joinId(ref.db || t.database, ref.table);
         node(refId, byId.has(refId) ? nodes.get(refId).kind : 'table');
         addEdge(refId, id, ref.kind === 'buffer' ? 'buffer' : 'shard');
       } else if (ref && ref.regex) {
@@ -179,7 +186,7 @@ export function buildSchemaGraph(rows, focus) {
       for (const src of ld) { node(src, byId.has(src) ? nodes.get(src).kind : 'table'); addEdge(src, id, 'dict'); }
     } else {
       const s = parseDictSource(d && d.source, t.create_table_query);
-      if (s && s.table) { const sid = qualify(s.db || t.database, s.table); node(sid, 'table'); addEdge(sid, id, 'dict'); }
+      if (s && s.table) { const sid = joinId(s.db || t.database, s.table); node(sid, 'table'); addEdge(sid, id, 'dict'); }
       else if (s && s.external) addEdge(external(s.external), id, 'dict');
     }
   }
@@ -187,7 +194,10 @@ export function buildSchemaGraph(rows, focus) {
   let outNodes = [...nodes.values()];
   let outEdges = edges;
   if (focus && focus.kind === 'table') {
-    const center = qualify(focus.db, focus.table);
+    // focus.table is always a bare name (db is separate in the drag payload), so
+    // join unconditionally — a dotted table name (`…snappy.parquet`) must keep its
+    // db prefix to match the rowId-built node ids, or the 1-hop filter finds nothing.
+    const center = joinId(focus.db, focus.table);
     const keep = new Set([center]);
     for (const e of edges) { if (e.from === center) keep.add(e.to); if (e.to === center) keep.add(e.from); }
     outNodes = outNodes.filter((n) => keep.has(n.id));

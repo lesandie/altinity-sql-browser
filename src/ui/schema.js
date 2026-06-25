@@ -3,7 +3,7 @@
 
 import { h } from './dom.js';
 import { Icon } from './icons.js';
-import { formatRows } from '../core/format.js';
+import { formatRows, quoteIdent, qualifyIdent } from '../core/format.js';
 import { IDENT_MIME, SCHEMA_GRAPH_MIME } from './editor.js';
 
 // Make a tree row a drag source carrying `text` as the schema identifier, so it
@@ -74,16 +74,17 @@ export function renderSchema(app) {
   const matches = (s) => !filter || s.toLowerCase().includes(filter);
 
   for (const db of state.schema) {
+    const qdb = quoteIdent(db.db); // SQL-safe db name (reused by the 3 emit sites)
     list.appendChild(h('div', {
       class: 'tree-row bold',
       title: 'Click to expand · double-click to insert · shift-click for SHOW CREATE',
       onclick: (e) => {
-        if (e.shiftKey) { app.actions.insertCreate('DATABASE ' + db.db); return; }
-        if (isDoubleClick(app, 'db:' + db.db)) { app.actions.insertAtCursor(db.db); return; }
+        if (e.shiftKey) { app.actions.insertCreate('DATABASE ' + qdb); return; }
+        if (isDoubleClick(app, 'db:' + db.db)) { app.actions.insertAtCursor(qdb); return; }
         db.expanded = !db.expanded;
         renderSchema(app);
       },
-      ...lineageDrag(db.db, { kind: 'db', db: db.db }),
+      ...lineageDrag(qdb, { kind: 'db', db: db.db }),
     },
       ...treeRow(Icon.database(), db.db, String(db.tables.length), { expanded: db.expanded }),
     ));
@@ -94,7 +95,8 @@ export function renderSchema(app) {
       const colsHave = Array.isArray(tb.columns) ? tb.columns : [];
       const visibleCols = filter ? colsHave.filter((c) => matches(c.name)) : colsHave;
       if (filter && !tableMatch && visibleCols.length === 0 && tb.columns !== 'loading') continue;
-      const key = db.db + '.' + tb.name;
+      const key = db.db + '.' + tb.name; // internal identity (Sets, dbl-click tracking)
+      const qname = qualifyIdent(db.db, tb.name); // SQL-safe qualified name
       const isOpen = state.expandedTables.has(key);
       const tbComment = (tb.comment || '').trim();
       const title = tbComment
@@ -105,10 +107,10 @@ export function renderSchema(app) {
         class: 'tree-row' + (filter && tableMatch ? ' match' : ''),
         style: { paddingLeft: '24px' },
         title,
-        ...lineageDrag(key, { kind: 'table', db: db.db, table: tb.name }),
+        ...lineageDrag(qname, { kind: 'table', db: db.db, table: tb.name }),
         onclick: (e) => {
-          if (e.shiftKey) { app.actions.insertCreate(key); return; }
-          if (isDoubleClick(app, 'tb:' + key)) { app.actions.replaceEditor('SELECT * FROM ' + key + ' LIMIT 100'); return; }
+          if (e.shiftKey) { app.actions.insertCreate(qname); return; }
+          if (isDoubleClick(app, 'tb:' + key)) { app.actions.replaceEditor('SELECT * FROM ' + qname + ' LIMIT 100'); return; }
           if (state.expandedTables.has(key)) state.expandedTables.delete(key);
           else state.expandedTables.add(key);
           if (state.expandedTables.has(key) && tb.columns == null) app.actions.loadColumns(db.db, tb.name, tb);
@@ -134,10 +136,10 @@ export function renderSchema(app) {
             || ('Double-click or drag to insert ' + c.name + ' · shift-click for ' + c.name + '::' + c.type),
           onclick: (e) => {
             e.stopPropagation();
-            if (e.shiftKey) { app.actions.insertAtCursor(c.name + '::' + c.type); return; }
-            if (isDoubleClick(app, 'col:' + key + '.' + c.name)) app.actions.insertAtCursor(c.name);
+            if (e.shiftKey) { app.actions.insertAtCursor(quoteIdent(c.name) + '::' + c.type); return; }
+            if (isDoubleClick(app, 'col:' + key + '.' + c.name)) app.actions.insertAtCursor(quoteIdent(c.name));
           },
-          ...dragProps(c.name),
+          ...dragProps(quoteIdent(c.name)),
         },
           ...treeRow(Icon.col(), c.name, c.type, { expanded: null, iconColor: 'var(--fg-faint)' }),
         ));

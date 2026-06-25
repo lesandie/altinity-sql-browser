@@ -50,6 +50,31 @@ export function sqlString(s) {
   return "'" + String(s).replace(/\\/g, '\\\\').replace(/'/g, "''") + "'";
 }
 
+// A bare (unquoted) ClickHouse identifier: a letter/underscore then word chars.
+// Anything else (dashes, dots, spaces — e.g. a `…snappy.parquet` table) MUST be
+// backtick-quoted or it's a syntax error.
+const BARE_IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
+ * Quote `name` as a ClickHouse identifier when it isn't a bare identifier:
+ * backticks, with `\` and `` ` `` backslash-escaped (CH's identifier escaping).
+ * Bare identifiers pass through unquoted so ordinary SQL stays readable.
+ */
+export function quoteIdent(name) {
+  const s = String(name);
+  if (BARE_IDENT.test(s)) return s;
+  return '`' + s.replace(/\\/g, '\\\\').replace(/`/g, '\\`') + '`';
+}
+
+/**
+ * Join already-separate identifier parts into a dotted reference, quoting each
+ * part as needed: `qualifyIdent('db', 'a.b')` → `` db.`a.b` ``. Empty/nullish
+ * parts are dropped (so a bare table name qualifies to just itself).
+ */
+export function qualifyIdent(...parts) {
+  return parts.filter((p) => p != null && p !== '').map(quoteIdent).join('.');
+}
+
 /**
  * Terminate `sql` so a programmatic full-replace (Format / Insert DDL) leaves the
  * caret on empty space rather than at the end of the last token. The editor's
