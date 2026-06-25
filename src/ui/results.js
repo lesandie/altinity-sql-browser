@@ -8,6 +8,15 @@ import { formatRows, formatBytes, isNumericType } from '../core/format.js';
 import { looksLikeHtml, prettyValue } from '../core/cell.js';
 import { sortRows } from '../core/sort.js';
 import { autoChart, schemaKey, chartFieldOptions, chartColors, chartJsConfig, chartCfgValid, normalizeChartCfg, unzoomChartEvent, CHART_ROW_CAP } from '../core/chart-data.js';
+import { EXPLAIN_VIEWS } from '../core/explain.js';
+import { renderExplainGraph, openPipelineFullscreen } from './explain-graph.js';
+
+// View id → tab glyph for the EXPLAIN view strip (kept here so core/explain.js
+// stays DOM-free). Pipeline reuses the node-graph share glyph.
+const EXPLAIN_ICONS = {
+  explain: Icon.plan, indexes: Icon.key, projections: Icon.layers,
+  pipeline: Icon.share, estimate: Icon.rows,
+};
 
 const VIS_CAP = 5000;
 const MIN_COL = 48; // px floor for a resized column
@@ -95,6 +104,8 @@ export function renderResults(app) {
       h('div', null, 'Press ', h('kbd', null, '⌘↵'), ' to run query')));
   } else if (r.error) {
     inner.appendChild(h('div', { class: 'results-error' }, r.error));
+  } else if (r.explainView) {
+    inner.appendChild(renderExplainView(app, r));
   } else if (r.rawText != null) {
     inner.appendChild(h('div', { class: 'raw-text-view', tabindex: '0' }, r.rawText));
   } else if (r.rows.length === 0) {
@@ -110,6 +121,20 @@ export function renderResults(app) {
   region.replaceChildren(body);
 }
 
+// Render the active EXPLAIN view: monospace text (Explain/Indexes/Projections),
+// a real table (Estimate, streamed structured), or the SVG pipeline graph.
+function renderExplainView(app, r) {
+  const desc = EXPLAIN_VIEWS.find((v) => v.id === r.explainView);
+  const kind = desc ? desc.kind : 'text';
+  if (kind === 'graph') return renderExplainGraph(r);
+  if (kind === 'table') {
+    return r.rows.length
+      ? renderTable(app, r)
+      : h('div', { class: 'placeholder' }, h('div', null, 'No rows to estimate for this query (only MergeTree reads that scan parts produce an estimate).'));
+  }
+  return h('div', { class: 'raw-text-view', tabindex: '0' }, r.rawText || '');
+}
+
 // 2px progress strip atop the results body while a query streams.
 function streamStrip(r) {
   return h('div', { class: 'stream-strip' },
@@ -119,34 +144,51 @@ function streamStrip(r) {
 }
 
 function buildToolbar(app, r) {
-  const isRaw = r && r.rawText != null;
   const toolbar = h('div', { class: 'res-toolbar' });
   const tabs = h('div', { class: 'result-view-tabs' });
-  const views = isRaw
-    ? [{ id: 'raw', label: r.rawFormat, icon: r.rawFormat === 'JSON' ? Icon.json() : Icon.table2() }]
-    : [
-        { id: 'table', label: 'Table', icon: Icon.table2() },
-        { id: 'json', label: 'JSON', icon: Icon.json() },
-        { id: 'chart', label: 'Chart', icon: Icon.chart() },
-      ];
-  for (const v of views) {
-    const isActive = app.state.resultView === v.id || (isRaw && v.id === 'raw');
-    tabs.appendChild(h('button', {
-      class: 'result-view-tab' + (isActive ? ' active' : ''),
-      onclick: () => { app.state.resultView = v.id; renderResults(app); },
-    }, v.icon, h('span', null, v.label)));
+  if (r && r.explainView) {
+    // The five EXPLAIN views — clicking re-runs the derived query (editor SQL is
+    // never touched). Stays visible on error so a failing view can be switched.
+    for (const v of EXPLAIN_VIEWS) {
+      const icon = EXPLAIN_ICONS[v.id];
+      tabs.appendChild(h('button', {
+        class: 'result-view-tab' + (r.explainView === v.id ? ' active' : ''),
+        onclick: () => app.actions.setExplainView(v.id),
+      }, icon ? icon() : null, h('span', null, v.label)));
+    }
+  } else {
+    const isRaw = r && r.rawText != null;
+    const views = isRaw
+      ? [{ id: 'raw', label: r.rawFormat, icon: r.rawFormat === 'JSON' ? Icon.json() : Icon.table2() }]
+      : [
+          { id: 'table', label: 'Table', icon: Icon.table2() },
+          { id: 'json', label: 'JSON', icon: Icon.json() },
+          { id: 'chart', label: 'Chart', icon: Icon.chart() },
+        ];
+    for (const v of views) {
+      const isActive = app.state.resultView === v.id || (isRaw && v.id === 'raw');
+      tabs.appendChild(h('button', {
+        class: 'result-view-tab' + (isActive ? ' active' : ''),
+        onclick: () => { app.state.resultView = v.id; renderResults(app); },
+      }, v.icon, h('span', null, v.label)));
+    }
   }
   toolbar.appendChild(tabs);
   toolbar.appendChild(h('div', { style: { flex: '1' } }));
+  // EXPLAIN views suppress the ms/rows/bytes stats — they're not meaningful for a
+  // plan and the freed space lets the five tabs breathe.
+  const showStats = !(r && r.explainView);
   if (app.state.running) {
     // Live counters (accent, mono) + Cancel — replaces the static stats while
     // streaming. The ms element is updated in place by app.tickElapsed().
-    app.dom.runElapsedEl = h('span', { class: 'v' }, app.elapsedMs().toFixed(0) + ' ms');
-    toolbar.appendChild(h('div', { class: 'stat live' }, h('span', { class: 'ic spin' }, Icon.spinner()), app.dom.runElapsedEl));
-    toolbar.appendChild(h('div', { class: 'stat live' }, h('span', { class: 'ic' }, Icon.rows()),
-      h('span', { class: 'v' }, formatRows(r ? r.progress.rows : 0) + ' rows')));
-    toolbar.appendChild(h('div', { class: 'stat live' }, h('span', { class: 'ic' }, Icon.bytes()),
-      h('span', { class: 'v' }, formatBytes(r ? r.progress.bytes : 0))));
+    if (showStats) {
+      app.dom.runElapsedEl = h('span', { class: 'v' }, app.elapsedMs().toFixed(0) + ' ms');
+      toolbar.appendChild(h('div', { class: 'stat live' }, h('span', { class: 'ic spin' }, Icon.spinner()), app.dom.runElapsedEl));
+      toolbar.appendChild(h('div', { class: 'stat live' }, h('span', { class: 'ic' }, Icon.rows()),
+        h('span', { class: 'v' }, formatRows(r ? r.progress.rows : 0) + ' rows')));
+      toolbar.appendChild(h('div', { class: 'stat live' }, h('span', { class: 'ic' }, Icon.bytes()),
+        h('span', { class: 'v' }, formatBytes(r ? r.progress.bytes : 0))));
+    }
     toolbar.appendChild(h('button', {
       class: 'res-act cancel-act', title: 'Cancel query (Esc)',
       onclick: () => app.actions.cancel(),
@@ -155,12 +197,20 @@ function buildToolbar(app, r) {
     if (r.cancelled) {
       toolbar.appendChild(h('span', { class: 'cancelled-badge' }, 'Cancelled · partial'));
     }
-    const ms = (r.progress.elapsed_ns / 1e6).toFixed(0);
-    toolbar.appendChild(h('div', { class: 'stat' }, h('span', { class: 'ic' }, Icon.clock()), h('span', { class: 'v' }, ms + ' ms')));
-    toolbar.appendChild(h('div', { class: 'stat' }, h('span', { class: 'ic' }, Icon.rows()),
-      h('span', { class: 'v' }, (r.rawText != null ? '—' : r.rows.length) + ' rows')));
-    toolbar.appendChild(h('div', { class: 'stat', title: r.progress.rows + ' rows scanned' },
-      h('span', { class: 'ic' }, Icon.bytes()), h('span', { class: 'v' }, formatBytes(r.progress.bytes))));
+    if (showStats) {
+      const ms = (r.progress.elapsed_ns / 1e6).toFixed(0);
+      toolbar.appendChild(h('div', { class: 'stat' }, h('span', { class: 'ic' }, Icon.clock()), h('span', { class: 'v' }, ms + ' ms')));
+      toolbar.appendChild(h('div', { class: 'stat' }, h('span', { class: 'ic' }, Icon.rows()),
+        h('span', { class: 'v' }, (r.rawText != null ? '—' : r.rows.length) + ' rows')));
+      toolbar.appendChild(h('div', { class: 'stat', title: r.progress.rows + ' rows scanned' },
+        h('span', { class: 'ic' }, Icon.bytes()), h('span', { class: 'v' }, formatBytes(r.progress.bytes))));
+    }
+    if (r.explainView === 'pipeline' && r.rawText && !r.error) {
+      toolbar.appendChild(h('button', {
+        class: 'res-act', title: 'Open the graph fullscreen (pan & zoom)',
+        onclick: () => openPipelineFullscreen(app, r.rawText),
+      }, Icon.expand(), h('span', null, 'Expand')));
+    }
     if (!r.error) {
       toolbar.appendChild(h('button', {
         class: 'res-act', title: 'Copy results to clipboard',

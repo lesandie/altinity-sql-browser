@@ -58,6 +58,10 @@ export function createState(read = { loadJSON, loadStr }) {
     running: false,
     abortController: null,
     resultView: 'table',
+    // `forceExplain` is set by the Explain button to put an ordinary query into
+    // EXPLAIN-view mode; a normal Run clears it (session-only). The active view is
+    // derived per-run from the typed statement / clicked tab, not stored here.
+    forceExplain: false,
     resultSort: { col: null, dir: 'asc' },
     sidePanel: read.loadStr(KEYS.sidePanel, 'saved'),
     savedQueries: read.loadJSON(KEYS.saved, []),
