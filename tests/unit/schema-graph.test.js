@@ -52,6 +52,10 @@ describe('parseMvTarget', () => {
   it('returns null for an implicit MV (ENGINE = …, no TO)', () => {
     expect(parseMvTarget('CREATE MATERIALIZED VIEW lin.events_mv2 (`day` Date) ENGINE = SummingMergeTree ORDER BY day AS SELECT toDate(ts) AS day FROM lin.events GROUP BY day')).toBeNull();
   });
+  it('does not treat a stray " TO " in the column list/comment as a target', () => {
+    // implicit MV — the only TO is inside a column COMMENT, after the '(' → ignored
+    expect(parseMvTarget("CREATE MATERIALIZED VIEW lin.mv (`x` String COMMENT 'route TO sink') ENGINE = SummingMergeTree ORDER BY x AS SELECT x FROM s")).toBeNull();
+  });
 });
 
 describe('parseDictSource', () => {

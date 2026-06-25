@@ -149,6 +149,18 @@ describe('completionContext', () => {
     const v = '`weird.tbl`.`od';
     expect(completionContext(v, v.length)).toMatchObject({ word: 'od', qualified: true, parent: 'weird.tbl', from: 12 });
   });
+  it('ignores a backtick inside a string literal (no false open-backtick mode)', () => {
+    const v = "SELECT 'a`b' FROM cl";
+    expect(completionContext(v, v.length)).toMatchObject({ word: 'cl', from: 18, qualified: false });
+  });
+  it('ignores a backtick inside a line comment', () => {
+    const v = 'SELECT 1 -- use `id\nFROM ev';
+    expect(completionContext(v, v.length)).toMatchObject({ word: 'ev', qualified: false });
+  });
+  it('a closed backtick identifier earlier in the query does not flip the mode', () => {
+    const v = 'SELECT `a b` , co';
+    expect(completionContext(v, v.length)).toMatchObject({ word: 'co', qualified: false });
+  });
 });
 
 describe('rankCompletions', () => {

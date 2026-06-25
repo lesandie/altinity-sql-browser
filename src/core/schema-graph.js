@@ -10,6 +10,8 @@
 // engine_full for Distributed/Buffer/Merge. All best-effort: a miss yields a node
 // with no edge, never a throw.
 
+import { unquoteIdent } from './format.js';
+
 /** Map a ClickHouse engine name to a node kind. */
 export function objectKind(engine) {
   const e = String(engine || '');
@@ -36,10 +38,6 @@ export function parseAstTables(astText) {
 // backtick-quotes non-bare names (e.g. TO target_all.`agg.out.parquet`).
 const IDENT_PART = '(?:`(?:[^`\\\\]|\\\\.)*`|[A-Za-z_][A-Za-z0-9_]*)';
 const TO_RE = new RegExp('\\sTO\\s+(' + IDENT_PART + ')(?:\\.(' + IDENT_PART + '))?');
-/** Strip backticks + unescape a single identifier part to its raw name. */
-function unBacktick(part) {
-  return part[0] === '`' ? part.slice(1, -1).replace(/\\(.)/g, '$1') : part;
-}
 
 /**
  * The explicit `TO [db.]table` target of a materialized view as `{ db?, table }`
@@ -48,10 +46,14 @@ function unBacktick(part) {
  */
 export function parseMvTarget(createTableQuery) {
   const s = String(createTableQuery || '');
-  const head = s.split(/\sAS\s+SELECT/i)[0]; // only look before the SELECT body
+  // The optional TO clause sits between the view name and the column list / AS
+  // SELECT, so only scan up to the first '(' (and before any AS SELECT). This
+  // keeps a stray " TO " inside a column comment or the SELECT body from being
+  // mistaken for the target (which would also suppress the real .inner edge).
+  const head = s.split(/\sAS\s+SELECT/i)[0].split('(')[0];
   const m = TO_RE.exec(head);
   if (!m) return null;
-  return m[2] ? { db: unBacktick(m[1]), table: unBacktick(m[2]) } : { table: unBacktick(m[1]) };
+  return m[2] ? { db: unquoteIdent(m[1]), table: unquoteIdent(m[2]) } : { table: unquoteIdent(m[1]) };
 }
 
 /** A dictionary's source as `{ db, table }` (ClickHouse source) or `{ external }`. */
@@ -158,10 +160,13 @@ export function buildSchemaGraph(rows, focus) {
     }
     // fallback: EXPLAIN AST sources of a view/MV → source → this object. EXPLAIN
     // AST prints names unquoted, qualified-or-bare — so resolve against the known
-    // ids both ways (as-is, then db-qualified). A miss (CTE/alias name) is dropped.
+    // ids both ways (as-is, then db-qualified). A name that matches no real object
+    // (a CTE/alias) is dropped; a CTE that shadows a real same-db table will still
+    // resolve to that table (we can't tell them apart from the name alone).
     if ((kind === 'mv' || kind === 'view') && Array.isArray(t.astTables)) {
       for (const src of t.astTables) {
-        const sid = byId.has(src) ? src : (byId.has(joinId(t.database, src)) ? joinId(t.database, src) : null);
+        const qid = joinId(t.database, src);
+        const sid = byId.has(src) ? src : (byId.has(qid) ? qid : null);
         if (sid) addEdge(sid, id, kind === 'mv' ? 'feeds' : 'reads');
       }
     }
