@@ -19,7 +19,11 @@ const ZOOM_STEP = 1.2; // per wheel notch / button press
  * for external controls (the overlay buttons). Shared by the inline pane and the
  * fullscreen overlay so both behave identically.
  */
-function attachPanZoom(container, svg, dims) {
+function attachPanZoom(container, svg, dims, opts = {}) {
+  // When modifierPan is set, drag-to-pan requires ⌘/Ctrl held — so a plain click
+  // selects a node (schema graph) instead of grabbing the canvas. The cursor then
+  // stays default (see .schema-graph-view CSS) rather than the grab hand.
+  const modifierPan = !!opts.modifierPan;
   svg.setAttribute('width', '100%');
   svg.setAttribute('height', '100%');
   svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
@@ -48,7 +52,11 @@ function attachPanZoom(container, svg, dims) {
     else panBy(-e.deltaX, -e.deltaY);
   });
   let drag = null;
-  container.addEventListener('mousedown', (e) => { drag = { x: e.clientX, y: e.clientY }; container.classList.add('grabbing'); });
+  container.addEventListener('mousedown', (e) => {
+    if (modifierPan && !(e.metaKey || e.ctrlKey)) return; // plain drag → let the click through
+    drag = { x: e.clientX, y: e.clientY };
+    container.classList.add('grabbing');
+  });
   container.addEventListener('mousemove', (e) => {
     if (!drag) return;
     panBy(e.clientX - drag.x, e.clientY - drag.y);
@@ -186,10 +194,12 @@ export function openPipelineFullscreen(app, rawText) {
   return openGraphFullscreen(app, 'Pipeline', () => buildPipelineSvg(rawText || '', app && app.Dagre));
 }
 
+// Clicking an object runs SHOW CREATE for it, dropping the (formatted) DDL into
+// the editor — the same action as a shift-click in the schema tree. External
+// dictionary-source leaves have no DDL.
 const schemaClick = (app) => (n) => {
   if (!n.id || n.id.startsWith('ext:')) return;
-  const dot = n.id.indexOf('.');
-  app.actions.showSchemaGraph({ kind: 'table', db: n.id.slice(0, dot), table: n.id.slice(dot + 1) });
+  app.actions.insertCreate(n.id);
 };
 
 /** Fullscreen schema-lineage graph. */
@@ -208,6 +218,6 @@ export function renderSchemaGraph(app, r) {
     return h('div', { class: 'placeholder' }, h('div', null, 'No objects to graph.'));
   }
   const view = h('div', { class: 'explain-graph-view schema-graph-view', tabindex: '0' }, built.svg, schemaLegend());
-  attachPanZoom(view, built.svg, built);
+  attachPanZoom(view, built.svg, built, { modifierPan: true });
   return view;
 }

@@ -630,6 +630,9 @@ body {
   background: var(--bg-table); cursor: grab;
 }
 .explain-graph-view.grabbing { cursor: grabbing; }
+/* Schema graph: normal pointer (click a node → SHOW CREATE); ⌘/Ctrl-drag to pan
+   swaps in the grabbing hand via .grabbing above. */
+.schema-graph-view { cursor: default; }
 .explain-graph-view:focus { outline: none; }
 .explain-graph-view > svg.explain-graph { width: 100%; height: 100%; }
 /* `color` drives the arrowhead (fill:currentColor) and edge stroke. */

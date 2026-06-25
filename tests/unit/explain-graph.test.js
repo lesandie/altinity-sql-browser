@@ -187,11 +187,28 @@ describe('schema lineage graph', () => {
     expect(el.querySelector('.schema-graph-legend')).not.toBeNull();
   });
 
-  it('clicking a node expands it via showSchemaGraph', () => {
-    const actions = { showSchemaGraph: vi.fn() };
+  it('clicking a node runs SHOW CREATE for it (insertCreate) into the editor', () => {
+    const actions = { insertCreate: vi.fn() };
     const el = renderSchemaGraph({ document, Dagre: dagre, actions }, { schemaGraph: GRAPH });
     el.querySelector('rect.eg-node--mv').dispatchEvent(new Event('click', { bubbles: true }));
-    expect(actions.showSchemaGraph).toHaveBeenCalledWith({ kind: 'table', db: 'lin', table: 'mv' });
+    expect(actions.insertCreate).toHaveBeenCalledWith('lin.mv');
+  });
+
+  it('a plain drag does not pan (click selects); ⌘/Ctrl-drag pans', () => {
+    const el = renderSchemaGraph({ document, Dagre: dagre, actions: { insertCreate: vi.fn() } }, { schemaGraph: GRAPH });
+    const svg = el.querySelector('svg.explain-graph');
+    el.getBoundingClientRect = () => ({ left: 0, top: 0, width: 400, height: 200, right: 400, bottom: 200 });
+    const vbX = () => svg.getAttribute('viewBox').split(' ').map(Number)[0];
+    const x0 = vbX();
+    // plain drag → no pan (modifierPan gate blocks the mousedown)
+    el.dispatchEvent(new MouseEvent('mousedown', { clientX: 100, clientY: 100, bubbles: true }));
+    el.dispatchEvent(new MouseEvent('mousemove', { clientX: 40, clientY: 100, bubbles: true }));
+    expect(vbX()).toBe(x0);
+    // ⌘-drag → pans
+    el.dispatchEvent(new MouseEvent('mousedown', { clientX: 100, clientY: 100, metaKey: true, bubbles: true }));
+    el.dispatchEvent(new MouseEvent('mousemove', { clientX: 40, clientY: 100, bubbles: true }));
+    expect(vbX()).not.toBe(x0);
+    el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
   });
 
   it('shows a placeholder for an empty graph', () => {
