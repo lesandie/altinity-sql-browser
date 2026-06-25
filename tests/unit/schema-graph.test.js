@@ -195,6 +195,17 @@ describe('buildSchemaGraph', () => {
     expect(() => buildSchemaGraph(rows, { kind: 'db', db: 'lin' })).not.toThrow();
   });
 
+  it('keeps the db prefix for a dependency whose table name contains dots', () => {
+    // dependencies_* carry the db separately, so a dotted table name (a parquet
+    // file table) must still join to db.<name>, not be mistaken for db-qualified.
+    const rows = { tables: [
+      T('target_all', 'part-0.snappy.parquet', 'MergeTree', { dependencies_database: ['target_all'], dependencies_table: ['v_over_parquet'] }),
+      T('target_all', 'v_over_parquet', 'View'),
+    ], dictionaries: [] };
+    const g = buildSchemaGraph(rows, { kind: 'db', db: 'target_all' });
+    expect(eset(g).has('target_all.part-0.snappy.parquet>target_all.v_over_parquet:feeds')).toBe(true);
+  });
+
   it('tolerates empty input', () => {
     expect(buildSchemaGraph(null, { kind: 'db', db: 'x' })).toEqual({ nodes: [], edges: [] });
     expect(buildSchemaGraph({}, null)).toEqual({ nodes: [], edges: [] });

@@ -194,6 +194,14 @@ describe('schema lineage graph', () => {
     expect(actions.insertCreate).toHaveBeenCalledWith('lin.mv');
   });
 
+  it('clicking a node with a non-bare name backtick-quotes the SHOW CREATE target', () => {
+    const actions = { insertCreate: vi.fn() };
+    const g = { focus: { kind: 'db', db: 'target_all' }, nodes: [{ id: 'target_all.a-b.parquet', label: 'a-b.parquet', kind: 'table' }], edges: [] };
+    const el = renderSchemaGraph({ document, Dagre: dagre, actions }, { schemaGraph: g });
+    el.querySelector('rect.eg-node--table').dispatchEvent(new Event('click', { bubbles: true }));
+    expect(actions.insertCreate).toHaveBeenCalledWith('target_all.`a-b.parquet`');
+  });
+
   it('a plain drag does not pan (click selects); ⌘/Ctrl-drag pans', () => {
     const el = renderSchemaGraph({ document, Dagre: dagre, actions: { insertCreate: vi.fn() } }, { schemaGraph: GRAPH });
     const svg = el.querySelector('svg.explain-graph');

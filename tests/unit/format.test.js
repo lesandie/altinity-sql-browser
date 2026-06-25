@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  clamp, formatRows, formatBytes, timeAgo, sqlString, inferQueryName, isNumericType, shortVersion, userShortName, withStatementBreak, detectSqlFormat, toSubquery,
+  clamp, formatRows, formatBytes, timeAgo, sqlString, quoteIdent, qualifyIdent, inferQueryName, isNumericType, shortVersion, userShortName, withStatementBreak, detectSqlFormat, toSubquery,
 } from '../../src/core/format.js';
 
 describe('clamp', () => {
@@ -66,6 +66,33 @@ describe('sqlString', () => {
     expect(sqlString('a\\b')).toBe("'a\\\\b'");
     expect(sqlString('x\\')).toBe("'x\\\\'");
     expect(sqlString("\\'")).toBe("'\\\\'''");
+  });
+});
+
+describe('quoteIdent', () => {
+  it('leaves a bare identifier unquoted', () => {
+    expect(quoteIdent('users')).toBe('users');
+    expect(quoteIdent('_x9')).toBe('_x9');
+  });
+  it('backtick-quotes names with non-identifier chars', () => {
+    expect(quoteIdent('part-00000-c000.snappy.parquet')).toBe('`part-00000-c000.snappy.parquet`');
+    expect(quoteIdent('has space')).toBe('`has space`');
+    expect(quoteIdent('9starts')).toBe('`9starts`'); // leading digit isn't bare
+  });
+  it('escapes backslashes and backticks inside the quotes', () => {
+    expect(quoteIdent('a`b')).toBe('`a\\`b`');
+    expect(quoteIdent('a\\b')).toBe('`a\\\\b`');
+  });
+});
+
+describe('qualifyIdent', () => {
+  it('quotes each part and joins with a dot', () => {
+    expect(qualifyIdent('db', 'tbl')).toBe('db.tbl');
+    expect(qualifyIdent('target_all', 'part-0.snappy.parquet')).toBe('target_all.`part-0.snappy.parquet`');
+  });
+  it('drops empty/nullish parts (a bare name qualifies to itself)', () => {
+    expect(qualifyIdent('', 'tbl')).toBe('tbl');
+    expect(qualifyIdent(null, 'a-b')).toBe('`a-b`');
   });
 });
 

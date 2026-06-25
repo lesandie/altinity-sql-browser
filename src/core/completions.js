@@ -7,6 +7,7 @@
 // built-in tokenizer sets when the server didn't supply them.
 
 import { SQL_KEYWORDS, SQL_FUNCS } from './sql-highlight.js';
+import { quoteIdent } from './format.js';
 
 const BUILTIN_KEYWORDS = [...SQL_KEYWORDS];
 const BUILTIN_FUNCS = [...SQL_FUNCS];
@@ -93,12 +94,14 @@ export function buildCompletions(ref, schema) {
     items.push({ label: name, kind: 'format', insert: name, detail: 'format' });
   }
   for (const db of schema || []) {
-    items.push({ label: db.db, kind: 'db', insert: db.db, detail: 'database' });
+    // `label` shows the bare name; `insert` is the SQL-safe (backtick-quoted when
+    // needed) identifier so a `…snappy.parquet` table inserts as valid SQL.
+    items.push({ label: db.db, kind: 'db', insert: quoteIdent(db.db), detail: 'database' });
     for (const tb of db.tables || []) {
-      items.push({ label: tb.name, kind: 'table', insert: tb.name, detail: 'table', parent: db.db });
+      items.push({ label: tb.name, kind: 'table', insert: quoteIdent(tb.name), detail: 'table', parent: db.db });
       if (Array.isArray(tb.columns)) {
         for (const c of tb.columns) {
-          items.push({ label: c.name, kind: 'column', insert: c.name, detail: c.type, parent: tb.name });
+          items.push({ label: c.name, kind: 'column', insert: quoteIdent(c.name), detail: c.type, parent: tb.name });
         }
       }
     }

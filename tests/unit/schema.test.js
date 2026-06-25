@@ -218,6 +218,50 @@ describe('renderSchema drag sources', () => {
   });
 });
 
+describe('renderSchema with non-bare object names (backtick quoting)', () => {
+  const PARQUET = 'part-00000-70041866.snappy.parquet';
+  function withParquet() {
+    const app = makeApp();
+    app.state.schema = [{
+      db: 'target_all', expanded: true,
+      tables: [{ name: PARQUET, total_rows: '1', total_bytes: '1', comment: '', columns: null }],
+    }];
+    return app;
+  }
+  const tbRow = (app) => rows(app).find((r) => r.querySelector('.label').textContent === PARQUET);
+
+  it('double-click → SELECT * quotes the dotted/dashed table name', () => {
+    const app = withParquet();
+    renderSchema(app);
+    dblclick(tbRow(app));
+    expect(app.actions.replaceEditor).toHaveBeenCalledWith('SELECT * FROM target_all.`' + PARQUET + '` LIMIT 100');
+  });
+  it('shift-click → SHOW CREATE target is backtick-quoted', () => {
+    const app = withParquet();
+    renderSchema(app);
+    shiftClick(tbRow(app));
+    expect(app.actions.insertCreate).toHaveBeenCalledWith('target_all.`' + PARQUET + '`');
+  });
+  it('drag carries the quoted identifier (but the graph payload keeps raw names)', () => {
+    const app = withParquet();
+    renderSchema(app);
+    const d = dragstart(tbRow(app));
+    expect(d[IDENT_MIME]).toBe('target_all.`' + PARQUET + '`');
+    expect(JSON.parse(d[SCHEMA_GRAPH_MIME])).toEqual({ kind: 'table', db: 'target_all', table: PARQUET });
+  });
+  it('a column with special chars is quoted on insert', () => {
+    const app = withParquet();
+    app.state.schema[0].tables[0].columns = [{ name: 'odd col', type: 'String', comment: '' }];
+    app.state.expandedTables.add('target_all.' + PARQUET);
+    renderSchema(app);
+    const colRow = [...app.dom.schemaList.querySelectorAll('.tree-row.small')]
+      .find((r) => r.querySelector('.label').textContent === 'odd col');
+    expect(dragstart(colRow)[IDENT_MIME]).toBe('`odd col`');
+    shiftClick(colRow);
+    expect(app.actions.insertAtCursor).toHaveBeenCalledWith('`odd col`::String');
+  });
+});
+
 describe('renderSchema filter', () => {
   it('keeps matching tables and drops non-matching ones', () => {
     const app = withSchema();
