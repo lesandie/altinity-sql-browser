@@ -1,6 +1,9 @@
 # Build output
 /dist/
 
+# Throwaway local ClickHouse data dir (npm run local)
+/.local-ch/
+
 # Test / coverage
 /coverage/
 /test-results/
