@@ -195,6 +195,21 @@ describe('schema lineage graph', () => {
     expect(actions.insertCreate).toHaveBeenCalledWith('lin.mv');
   });
 
+  it('clicking an external (ext:) leaf in the inline graph is a no-op (no SHOW CREATE)', () => {
+    const actions = { insertCreate: vi.fn() };
+    const g = {
+      focus: { kind: 'db', db: 'lin' },
+      nodes: [
+        { id: 'lin.d', label: 'd', kind: 'dictionary', db: 'lin', name: 'd' },
+        { id: 'ext:HTTP', label: 'HTTP', kind: 'external', db: '', name: 'HTTP' },
+      ],
+      edges: [{ from: 'ext:HTTP', to: 'lin.d', kind: 'dict' }],
+    };
+    const el = renderSchemaGraph({ document, Dagre: dagre, actions }, { schemaGraph: g });
+    el.querySelector('rect.eg-node--external').dispatchEvent(new Event('click', { bubbles: true }));
+    expect(actions.insertCreate).not.toHaveBeenCalled();
+  });
+
   it('clicking a node with a non-bare name backtick-quotes the SHOW CREATE target', () => {
     const actions = { insertCreate: vi.fn() };
     const g = { focus: { kind: 'db', db: 'target_all' }, nodes: [{ id: 'target_all.a-b.parquet', label: 'a-b.parquet', kind: 'table', db: 'target_all', name: 'a-b.parquet' }], edges: [] };
@@ -242,8 +257,40 @@ describe('schema lineage graph', () => {
     expect(document.body.contains(overlay)).toBe(true);
     expect(overlay.querySelector('svg.explain-graph')).not.toBeNull();
     expect(overlay.querySelector('.schema-graph-legend')).not.toBeNull();
+    expect(overlay.querySelector('.graph-overlay-note')).toBeNull(); // not truncated → no banner
     overlay.querySelector('.graph-overlay-close').dispatchEvent(new Event('click', { bubbles: true }));
     expect(document.body.contains(overlay)).toBe(false);
+  });
+
+  it('clicking a fullscreen node opens the detail pane (openNodeDetail), not insertCreate', () => {
+    const actions = { openNodeDetail: vi.fn(), insertCreate: vi.fn() };
+    const overlay = openSchemaFullscreen({ document, Dagre: dagre, actions }, GRAPH);
+    overlay.querySelector('g.eg-card').dispatchEvent(new Event('click', { bubbles: true }));
+    expect(actions.openNodeDetail).toHaveBeenCalledTimes(1);
+    expect(actions.insertCreate).not.toHaveBeenCalled();
+  });
+
+  it('shows a truncation banner when the graph is truncated', () => {
+    const overlay = openSchemaFullscreen({ document, Dagre: dagre, actions: { openNodeDetail: vi.fn() } }, { ...GRAPH, truncated: true });
+    const note = overlay.querySelector('.graph-overlay-note');
+    expect(note).not.toBeNull();
+    expect(note.textContent).toMatch(/truncated/i);
+  });
+
+  it('clicking an external (ext:) leaf in the fullscreen graph is a no-op (no detail pane)', () => {
+    const actions = { openNodeDetail: vi.fn() };
+    const g = {
+      focus: { kind: 'db', db: 'lin' },
+      nodes: [
+        { id: 'lin.d', label: 'd', kind: 'dictionary', db: 'lin', name: 'd' },
+        { id: 'ext:HTTP', label: 'HTTP', kind: 'external', db: '', name: 'HTTP', external: true },
+      ],
+      edges: [{ from: 'ext:HTTP', to: 'lin.d', kind: 'dict' }],
+    };
+    const overlay = openSchemaFullscreen({ document, Dagre: dagre, actions }, g);
+    const extCard = [...overlay.querySelectorAll('g.eg-card')].find((c) => c.querySelector('rect.eg-node--external'));
+    extCard.dispatchEvent(new Event('click', { bubbles: true }));
+    expect(actions.openNodeDetail).not.toHaveBeenCalled();
   });
 });
 
@@ -309,5 +356,18 @@ describe('buildRichSchemaSvg (rich cards)', () => {
     const built = buildRichSchemaSvg(null, dagre);
     expect(built.nodeCount).toBe(0);
     expect(built.svg.querySelectorAll('g.eg-card')).toHaveLength(0);
+  });
+
+  it('marks external (other-db) nodes with eg-node--ext, leaving local nodes plain', () => {
+    const g = {
+      nodes: [
+        { id: 'a.t', label: 't', kind: 'table', db: 'a', name: 't', external: false },
+        { id: 'b.u', label: 'u', kind: 'mv', db: 'b', name: 'u', external: true },
+      ],
+      edges: [{ from: 'a.t', to: 'b.u', kind: 'feeds' }],
+    };
+    const built = buildRichSchemaSvg(g, dagre);
+    expect(built.svg.querySelectorAll('rect.eg-node--ext')).toHaveLength(1);
+    expect(built.svg.querySelector('rect.eg-node--ext').getAttribute('class')).toContain('eg-node--mv');
   });
 });
