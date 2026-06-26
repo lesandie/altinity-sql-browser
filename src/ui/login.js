@@ -153,7 +153,11 @@ export function renderLogin(app, errorMsg) {
 
   function populateSso(idps) {
     ssoBtns = [];
-    if (!idps || !idps.length) return;
+    // An IdP referenced by a saved connection is signed into via the picker (which
+    // targets that host's origin); don't also offer it as a serving-host SSO button —
+    // that would query the serving origin (e.g. localhost), not the chosen cluster.
+    const standalone = (idps || []).filter((i) => !pickHosts.some((hh) => hh.auth === 'oauth' && hh.idp === i.id));
+    if (!standalone.length) return;
     const mk = (idpId, label) => {
       const b = h('button', { class: 'login-btn btn-primary', onclick: () => doSso(idpId, b) },
         Icon.shield(), h('span', null, label));
@@ -162,7 +166,7 @@ export function renderLogin(app, errorMsg) {
     };
     // Always label the button with the IdP — "Continue with Google" reads
     // better than a generic "SSO", and disambiguates when several are configured.
-    const btns = idps.map((i) => mk(i.id, 'Continue with ' + i.label));
+    const btns = standalone.map((i) => mk(i.id, 'Continue with ' + i.label));
     ssoSection.replaceChildren(
       ...btns,
       h('div', { class: 'login-sso-note' },

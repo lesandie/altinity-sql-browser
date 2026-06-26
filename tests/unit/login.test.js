@@ -79,6 +79,17 @@ describe('renderLogin — host picker', () => {
     selectHost(app.root, '1');
     expect(login).toHaveBeenCalledWith('google', 'https://antalya.demo.altinity.cloud');
   });
+  it('does not show a standalone SSO button for an IdP a host references (picker-only)', async () => {
+    const app = appWith({ loadIdps: async () => ({
+      idps: [{ id: 'antalya-oauth', label: 'antalya-oauth' }, { id: 'google', label: 'Google' }],
+      basicLogin: true,
+      hosts: [{ label: 'antalya', url: 'https://antalya.demo.altinity.cloud', auth: 'oauth', idp: 'antalya-oauth', user: '', password: '' }],
+    }) });
+    renderLogin(app); await tick();
+    const labels = [...app.root.querySelectorAll('.login-sso .login-btn')].map((b) => b.textContent);
+    expect(labels.some((l) => /antalya-oauth/.test(l))).toBe(false); // reached via the picker, not a serving-host button
+    expect(labels.some((l) => /Google/.test(l))).toBe(true); // an unreferenced IdP still shows standalone
+  });
   it('the placeholder option is a no-op', async () => {
     const login = vi.fn();
     const app = withHosts({ actions: { login } });
