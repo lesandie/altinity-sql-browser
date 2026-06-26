@@ -11,9 +11,10 @@ import { parseDot } from '../core/dot.js';
 import { dagreLayout } from '../core/dot-layout.js';
 import { buildCardModel, cardSize, CARD } from '../core/schema-cards.js';
 import { qualifyIdent } from '../core/format.js';
-import { fitBox, zoomBox, panBox, viewBoxStr } from '../core/panzoom.js';
+import { fitBox, fitWidthBox, zoomBox, panBox, viewBoxStr } from '../core/panzoom.js';
 
-const ZOOM_STEP = 1.2; // per wheel notch / button press
+const ZOOM_STEP = 1.2; // per zoom-button press
+const WHEEL_ZOOM_STEP = 1.04; // per ⌘/Ctrl+wheel notch — gentle, so trackpad/wheel zoom isn't jumpy
 
 /** A centred message shown in place of a graph (no nodes / nothing to draw). */
 const placeholder = (msg) => h('div', { class: 'placeholder' }, h('div', null, msg));
@@ -41,6 +42,9 @@ function attachPanZoom(container, svg, dims, opts = {}) {
   // selects a node (schema graph) instead of grabbing the canvas. The cursor then
   // stays default (see .schema-graph-view CSS) rather than the grab hand.
   const modifierPan = !!opts.modifierPan;
+  // fitWidth: frame the graph to fill the container's WIDTH and let the height
+  // overflow (pan/scroll down) — used by the schema full view, which can be tall.
+  const fitWidth = !!opts.fitWidth;
   svg.setAttribute('width', '100%');
   svg.setAttribute('height', '100%');
   svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
@@ -48,9 +52,13 @@ function attachPanZoom(container, svg, dims, opts = {}) {
   // wide graph can still be zoomed to a legible node, not just to width/8.
   const minW = Math.min(dims.width / 8, 600);
   const maxW = dims.width * 3;
-  let vb = fitBox(dims.width, dims.height);
+  const computeFit = () => {
+    if (fitWidth) { const r = container.getBoundingClientRect(); return fitWidthBox(dims.width, dims.height, r.width, r.height); }
+    return fitBox(dims.width, dims.height);
+  };
+  let vb = computeFit();
   const apply = () => svg.setAttribute('viewBox', viewBoxStr(vb));
-  const fit = () => { vb = fitBox(dims.width, dims.height); apply(); };
+  const fit = () => { vb = computeFit(); apply(); };
   const toSvg = (cx, cy) => {
     const r = container.getBoundingClientRect();
     return { x: vb.x + ((cx - r.left) / r.width) * vb.w, y: vb.y + ((cy - r.top) / r.height) * vb.h };
@@ -67,7 +75,7 @@ function attachPanZoom(container, svg, dims, opts = {}) {
 
   container.addEventListener('wheel', (e) => {
     e.preventDefault();
-    if (e.ctrlKey || e.metaKey) zoomAt(e.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP, e.clientX, e.clientY);
+    if (e.ctrlKey || e.metaKey) zoomAt(e.deltaY < 0 ? WHEEL_ZOOM_STEP : 1 / WHEEL_ZOOM_STEP, e.clientX, e.clientY);
     else panBy(-e.deltaX, -e.deltaY);
   });
   let drag = null;
@@ -256,9 +264,9 @@ function schemaLegend() {
  * buttons; Esc / ✕ / backdrop close). `build()` returns `{svg,width,height,nodeCount}`
  * — shared by the pipeline and schema graphs. `extra` is an optional overlay node
  * (e.g. the schema legend); `note` an optional banner shown in the bar (e.g. a
- * truncation warning).
+ * truncation warning); `pzOpts` extra options for attachPanZoom (e.g. fitWidth).
  */
-function openGraphFullscreen(app, title, build, extra, emptyMsg, note) {
+function openGraphFullscreen(app, title, build, extra, emptyMsg, note, pzOpts) {
   const doc = (app && app.document) || document;
   const built = build();
   const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
@@ -273,7 +281,7 @@ function openGraphFullscreen(app, title, build, extra, emptyMsg, note) {
   } else {
     canvas.appendChild(built.svg);
     if (extra) canvas.appendChild(extra);
-    const pz = attachPanZoom(canvas, built.svg, built);
+    const pz = attachPanZoom(canvas, built.svg, built, pzOpts || {});
     bar.appendChild(h('div', { class: 'graph-overlay-zoom' },
       h('button', { class: 'res-act', title: 'Zoom out', onclick: pz.zoomOut }, Icon.minus()),
       h('button', { class: 'res-act', title: 'Zoom in', onclick: pz.zoomIn }, Icon.plus()),
@@ -315,7 +323,7 @@ export function openSchemaFullscreen(app, graph) {
   const note = graph && graph.truncated
     ? 'Lineage truncated — showing ' + (((graph.nodes && graph.nodes.length) || 0)) + ' objects'
     : null;
-  return openGraphFullscreen(app, 'Schema', () => buildRichSchemaSvg(graph, app && app.Dagre, schemaDetailClick(app)), schemaLegend(), schemaEmptyMessage(graph), note);
+  return openGraphFullscreen(app, 'Schema', () => buildRichSchemaSvg(graph, app && app.Dagre, schemaDetailClick(app)), schemaLegend(), schemaEmptyMessage(graph), note, { fitWidth: true });
 }
 
 /**
