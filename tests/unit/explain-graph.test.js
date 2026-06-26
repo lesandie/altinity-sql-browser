@@ -277,6 +277,15 @@ describe('schema lineage graph', () => {
     expect(note.textContent).toMatch(/truncated/i);
   });
 
+  it('fitWidth: the schema fullscreen frames the graph to fill the container width (viewBox aspect = container)', () => {
+    const overlay = openSchemaFullscreen({ document, Dagre: dagre, actions: { openNodeDetail: vi.fn() } }, GRAPH);
+    const canvas = overlay.querySelector('.graph-overlay-canvas');
+    canvas.getBoundingClientRect = () => ({ left: 0, top: 0, width: 400, height: 200, right: 400, bottom: 200 });
+    canvas.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); // fit → fitWidthBox with a real container size
+    const vb = canvas.querySelector('svg.explain-graph').getAttribute('viewBox').split(' ').map(Number);
+    expect(vb[2] / vb[3]).toBeCloseTo(400 / 200, 4); // width:height aspect matches the container → no horizontal letterbox
+  });
+
   it('clicking an external (ext:) leaf in the fullscreen graph is a no-op (no detail pane)', () => {
     const actions = { openNodeDetail: vi.fn() };
     const g = {

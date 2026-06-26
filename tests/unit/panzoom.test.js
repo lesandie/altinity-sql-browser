@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { fitBox, zoomBox, panBox, viewBoxStr } from '../../src/core/panzoom.js';
+import { fitBox, fitWidthBox, zoomBox, panBox, viewBoxStr } from '../../src/core/panzoom.js';
 
 describe('fitBox', () => {
   it('frames the graph with fractional padding on every side', () => {
@@ -9,6 +9,19 @@ describe('fitBox', () => {
     const b = fitBox(200, 100);
     expect(b.w).toBeGreaterThan(200);
     expect(b.x).toBeLessThan(0);
+  });
+});
+
+describe('fitWidthBox', () => {
+  it('fills the padded width and matches the container aspect (so width has no letterbox)', () => {
+    const vb = fitWidthBox(1000, 4000, 800, 400); // tall graph in a wide container
+    expect(vb.w).toBeCloseTo(1080); // 1000 + 2*(1000*0.04)
+    expect(vb.w / vb.h).toBeCloseTo(800 / 400); // aspect == container → width fills
+    expect(vb.x).toBeCloseTo(-40);
+    expect(vb.y).toBeCloseTo(-40); // anchored at the top
+  });
+  it('falls back to the graph height when the container size is unknown', () => {
+    expect(fitWidthBox(1000, 500, 0, 0).h).toBeCloseTo(580); // gh + 2*px
   });
 });
 

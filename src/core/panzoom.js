@@ -13,6 +13,21 @@ export function fitBox(gw, gh, pad = 0.04) {
 }
 
 /**
+ * Initial viewBox that fills the container's WIDTH with the `gw × gh` graph and
+ * lets the height overflow (the user pans/scrolls down). The box width is the
+ * padded graph width; its height is set to the container's aspect ratio so
+ * `preserveAspectRatio … meet` maps width 1:1 with no horizontal letterboxing.
+ * Anchored at the top. Falls back to the graph height when the container size is
+ * unknown (e.g. not yet laid out).
+ */
+export function fitWidthBox(gw, gh, cw, ch, pad = 0.04) {
+  const px = gw * pad;
+  const w = gw + 2 * px;
+  const h = cw > 0 && ch > 0 ? w * (ch / cw) : gh + 2 * px;
+  return { x: -px, y: -px, w, h };
+}
+
+/**
  * Zoom by `factor` (>1 = zoom in) keeping the svg-space point `(cx, cy)` fixed.
  * Width is clamped to `[minW, maxW]`; height scales by the same ratio so the
  * aspect is preserved.
