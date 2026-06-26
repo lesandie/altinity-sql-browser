@@ -195,6 +195,21 @@ describe('schema lineage graph', () => {
     expect(actions.insertCreate).toHaveBeenCalledWith('lin.mv');
   });
 
+  it('clicking an external (ext:) leaf in the inline graph is a no-op (no SHOW CREATE)', () => {
+    const actions = { insertCreate: vi.fn() };
+    const g = {
+      focus: { kind: 'db', db: 'lin' },
+      nodes: [
+        { id: 'lin.d', label: 'd', kind: 'dictionary', db: 'lin', name: 'd' },
+        { id: 'ext:HTTP', label: 'HTTP', kind: 'external', db: '', name: 'HTTP' },
+      ],
+      edges: [{ from: 'ext:HTTP', to: 'lin.d', kind: 'dict' }],
+    };
+    const el = renderSchemaGraph({ document, Dagre: dagre, actions }, { schemaGraph: g });
+    el.querySelector('rect.eg-node--external').dispatchEvent(new Event('click', { bubbles: true }));
+    expect(actions.insertCreate).not.toHaveBeenCalled();
+  });
+
   it('clicking a node with a non-bare name backtick-quotes the SHOW CREATE target', () => {
     const actions = { insertCreate: vi.fn() };
     const g = { focus: { kind: 'db', db: 'target_all' }, nodes: [{ id: 'target_all.a-b.parquet', label: 'a-b.parquet', kind: 'table', db: 'target_all', name: 'a-b.parquet' }], edges: [] };
@@ -260,6 +275,22 @@ describe('schema lineage graph', () => {
     const note = overlay.querySelector('.graph-overlay-note');
     expect(note).not.toBeNull();
     expect(note.textContent).toMatch(/truncated/i);
+  });
+
+  it('clicking an external (ext:) leaf in the fullscreen graph is a no-op (no detail pane)', () => {
+    const actions = { openNodeDetail: vi.fn() };
+    const g = {
+      focus: { kind: 'db', db: 'lin' },
+      nodes: [
+        { id: 'lin.d', label: 'd', kind: 'dictionary', db: 'lin', name: 'd' },
+        { id: 'ext:HTTP', label: 'HTTP', kind: 'external', db: '', name: 'HTTP', external: true },
+      ],
+      edges: [{ from: 'ext:HTTP', to: 'lin.d', kind: 'dict' }],
+    };
+    const overlay = openSchemaFullscreen({ document, Dagre: dagre, actions }, g);
+    const extCard = [...overlay.querySelectorAll('g.eg-card')].find((c) => c.querySelector('rect.eg-node--external'));
+    extCard.dispatchEvent(new Event('click', { bubbles: true }));
+    expect(actions.openNodeDetail).not.toHaveBeenCalled();
   });
 });
 
