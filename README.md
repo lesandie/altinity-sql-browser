@@ -168,25 +168,27 @@ npm run build          # → dist/sql.html (single file)
 npm run dev            # build + serve dist/ at http://localhost:8900
 ```
 
-`npm run dev` serves only the static shell — the app needs a *same-origin*
-ClickHouse to query (see "How it works"). To run the whole thing locally:
+### Run locally against your own ClickHouse
 
-### Run locally against a throwaway ClickHouse (no Docker)
-
-If you have the `clickhouse` binary installed ([install
-docs](https://clickhouse.com/docs/install), or `curl https://clickhouse.com/ | sh`):
+`npm run local` builds the SPA and serves it as a static page on localhost:
 
 ```bash
-npm run local          # build + boot a standalone ClickHouse, serving the SPA
-                       # → open http://localhost:18123/sql
+npm run local          # build + serve → open http://localhost:8900/sql
 ```
 
-This boots `clickhouse server` in a gitignored `.local-ch/` data dir and serves
-the built SPA same-origin from its `user_files` (the same static-handler trick as
-the production deploy), so queries, the schema tree, and the lineage graph all
-work offline. **Sign in as user `default` with an empty password.** The data dir
-persists across runs (your tables survive) — delete `.local-ch/` to reset, or set
-`LOCAL_CH_DIR` / `CH_HTTP_PORT` / `CH_TCP_PORT` to override. Ctrl-C stops it.
+The app is a thin client: in **credentials** mode the login form takes a
+ClickHouse host, and queries go straight from the browser to that host. So the
+local server just serves the page — point the login at whatever ClickHouse you
+like:
+
+- **Host** — e.g. `http://localhost:8123` (include the scheme; a bare host
+  defaults to `https://<host>:8443`).
+- **User / password** — your ClickHouse credentials.
+
+The target ClickHouse must allow cross-origin requests; ClickHouse's HTTP
+interface sends `Access-Control-Allow-Origin` for requests carrying an `Origin`
+header by default, so a stock server works as-is. Override the serve port with
+`PORT`. Ctrl-C stops it.
 
 ## Installing on any ClickHouse cluster
 
