@@ -28,7 +28,7 @@ import { mountEditor, insertAtCursor, replaceEditor, SCHEMA_GRAPH_MIME } from '.
 import { renderTabs, selectTab, newTab, closeTab, loadIntoNewTab } from './tabs.js';
 import { renderSchema } from './schema.js';
 import { renderResults } from './results.js';
-import { openSchemaFullscreen } from './explain-graph.js';
+import { openSchemaView } from './explain-graph.js';
 import { openDetailPane } from './schema-detail.js';
 import { renderSavedHistory } from './saved-history.js';
 import { libraryControls, renderLibraryTitle } from './file-menu.js';
@@ -59,6 +59,11 @@ export function createApp(env = {}) {
     // Pipeline-graph layout seam: dagre (injected like Chart). The DOT parser and
     // SVG drawer are ours; dagre only computes node positions + edge bend points.
     Dagre: env.Dagre || win.dagre,
+    // The schema graph opens in a real browser tab driven by this window. Both are
+    // injected seams: openWindow so tests can stub window.open, stylesText so the
+    // child tab can inline the page's CSS (about:blank ships none of it).
+    openWindow: env.openWindow || ((...a) => win.open(...a)),
+    stylesText: env.stylesText || (doc.querySelector('style') ? doc.querySelector('style').textContent : ''),
   };
 
   // Two ways to be signed in: OAuth (a JWT bearer, the default) or 'basic' —
@@ -553,38 +558,50 @@ export function createApp(env = {}) {
   // result) keeps the inline path's shape frozen and the card data off the hot path.
   async function expandSchemaGraph(focus) {
     if (!focus || !focus.db) return;
-    await ensureConfig();
-    if (!(await getToken())) { chCtx.onSignedOut(); return; }
-    let lineage;
+    // Pin the result whose Expand was clicked NOW: a tab switch during the async
+    // fetch must not redirect the saved-positions map to a different tab's result.
+    const clickedTab = app.activeTab();
+    const sg = (clickedTab && clickedTab.result && clickedTab.result.schemaGraph) || null;
+    // Open the view synchronously so a real tab survives the click gesture (a
+    // pop-up opened after an await is blocked); fill it once the lineage loads.
+    const view = openSchemaView(app);
+    // Everything after the synchronous open is wrapped: a token-refresh rejection,
+    // a lineage/cards fetch failure, or a graph-build throw must surface in the view
+    // (fail) instead of leaving the just-opened tab/overlay stranded on "Loading…".
     try {
+      await ensureConfig();
+      if (!(await getToken())) { chCtx.onSignedOut(); view.fail('Sign in to view the schema graph.'); return; }
       // Walk lineage transitively across DB boundaries (soft-capped) — pulls in
       // objects an other database references, instead of dead-ending at the edge.
-      lineage = await ch.loadLineageTransitive(chCtx, focus);
+      const lineage = await ch.loadLineageTransitive(chCtx, focus);
+      const g = buildSchemaGraph(lineage.rows, focus);
+      const ex = expandLineage(g, focus.db); // closure around focus.db, tags external nodes
+      // Card metadata for every database the expansion reached (external nodes too).
+      const dbs = [...new Set(ex.nodes.map((n) => n.db).filter(Boolean))];
+      const cards = await ch.loadSchemaCards(chCtx, dbs);
+      const cardGraph = buildCardGraph({ nodes: ex.nodes, edges: ex.edges },
+        { tables: lineage.rows.tables, columnsByKey: cards.columnsByKey, skipByKey: cards.skipByKey });
+      // Persist manually-moved node positions per result: the map hangs off the live
+      // schemaGraph result (captured above) so re-opening keeps the layout.
+      const positions = (sg && sg.savedPositions) || {};
+      if (sg) sg.savedPositions = positions;
+      view.render({
+        nodes: cardGraph.nodes, edges: cardGraph.edges, focus,
+        tableCount: (lineage.rows.tables || []).length,
+        truncated: lineage.truncated || ex.truncated,
+        savedPositions: positions,
+      });
     } catch {
-      // The inline graph is still on screen; tell the user the expand didn't load.
-      flashToast('Could not load the schema graph', { document: doc });
-      return;
+      view.fail('Could not load the schema graph');
     }
-    const g = buildSchemaGraph(lineage.rows, focus);
-    const ex = expandLineage(g, focus.db); // closure around focus.db, tags external nodes
-    // Card metadata for every database the expansion reached (external nodes too).
-    const dbs = [...new Set(ex.nodes.map((n) => n.db).filter(Boolean))];
-    const cards = await ch.loadSchemaCards(chCtx, dbs);
-    const cardGraph = buildCardGraph({ nodes: ex.nodes, edges: ex.edges },
-      { tables: lineage.rows.tables, columnsByKey: cards.columnsByKey, skipByKey: cards.skipByKey });
-    openSchemaFullscreen(app, {
-      nodes: cardGraph.nodes, edges: cardGraph.edges, focus,
-      tableCount: (lineage.rows.tables || []).length,
-      truncated: lineage.truncated || ex.truncated,
-    });
   }
 
   // Open the detail pane for a clicked fullscreen node: lazily load the table's full
   // columns / partitions / DDL (best-effort) and mount the pane in the overlay.
-  async function openNodeDetail(node) {
+  async function openNodeDetail(node, targetDoc) {
     if (!node || !node.db || !node.name) return;
     const detail = await ch.loadTableDetail(chCtx, node.db, node.name);
-    openDetailPane(app, node, detail);
+    openDetailPane(app, node, detail, targetDoc);
   }
 
   // Explain the current query without editing it: run it through the EXPLAIN
@@ -779,6 +796,9 @@ export function createApp(env = {}) {
     doc.documentElement.setAttribute('data-theme', app.state.theme);
     if (app.dom.themeBtn) app.dom.themeBtn.replaceChildren(app.state.theme === 'dark' ? Icon.sun() : Icon.moon());
   }
+  // Exposed so the schema-view overlay can drive the same toggle (keeps state +
+  // saved pref + header icon in sync rather than flipping data-theme behind them).
+  app.toggleTheme = toggleTheme;
 
   // --- actions registry --------------------------------------------------
   app.actions = {

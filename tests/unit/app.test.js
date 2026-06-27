@@ -80,6 +80,23 @@ describe('createApp basics', () => {
     const app = createApp(env({ location: { host: 'h', origin: 'https://h', pathname: '/sql', search: '?host=antalya.demo:9000' } }));
     expect(app.hostHint).toBe('antalya.demo:9000');
   });
+  it('openWindow + stylesText seams resolve from env, from window.open, and from the page <style>', () => {
+    // env-provided seams win
+    const a1 = createApp(env({ openWindow: () => 'X', stylesText: 'body{color:red}' }));
+    expect(a1.openWindow()).toBe('X');
+    expect(a1.stylesText).toBe('body{color:red}');
+    // default openWindow delegates to window.open
+    const open = vi.fn(() => 'W');
+    const a2 = createApp(env({ window: { ...window, open }, openWindow: undefined, stylesText: undefined }));
+    expect(a2.openWindow('', '_blank')).toBe('W');
+    expect(open).toHaveBeenCalledWith('', '_blank');
+    // default stylesText reads the served page's inlined <style>
+    const styleEl = document.createElement('style');
+    styleEl.textContent = '.x{}';
+    document.head.appendChild(styleEl);
+    expect(createApp(env({ stylesText: undefined })).stylesText).toBe('.x{}');
+    styleEl.remove();
+  });
 });
 
 describe('renderApp shell', () => {
@@ -107,10 +124,10 @@ describe('renderApp shell', () => {
   });
   it('toggles theme via the header button', () => {
     const { app } = rendered();
-    app.dom.themeBtn.dispatchEvent(new Event('click'));
-    expect(app.state.theme).toBe('light');
+    app.dom.themeBtn.dispatchEvent(new Event('click')); // default light → dark
+    expect(app.state.theme).toBe('dark');
     expect(app.savePref).toBeUndefined; // savePref is internal; theme attr set
-    expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
   });
   it('user menu: open → Log out clears tokens and shows login', () => {
     const { app, e } = rendered();
@@ -1237,7 +1254,7 @@ describe('schema lineage graph (drag a db/table onto the results pane)', () => {
       ] } })],
       [(u, sql) => /data_skipping_indices/.test(sql), resp({ json: { data: [] } })],
     ];
-    const { app } = appForRun(routes);
+    const { app } = appForRun(routes, { openWindow: () => null }); // force the in-app overlay fallback
     await app.actions.expandSchemaGraph({ kind: 'db', db: 'lin' });
     const overlay = document.body.querySelector('.graph-overlay');
     expect(overlay).not.toBeNull();
@@ -1262,12 +1279,29 @@ describe('schema lineage graph (drag a db/table onto the results pane)', () => {
   });
 
   it('openNodeDetail mounts the detail pane in the open overlay (and guards an incomplete node)', async () => {
-    const { app } = appForRun(lineageRoutes);
+    const { app } = appForRun(lineageRoutes, { openWindow: () => null }); // overlay fallback
     await app.actions.expandSchemaGraph({ kind: 'db', db: 'lin' });
     expect(document.body.querySelector('.graph-overlay')).not.toBeNull();
     await app.actions.openNodeDetail({ db: 'lin', name: 'events', kind: 'table' });
     expect(document.body.querySelector('.schema-detail')).not.toBeNull();
     await app.actions.openNodeDetail({ db: 'lin' }); // no name → guard returns, no throw
+    document.body.querySelector('.graph-overlay').remove();
+  });
+
+  it('attaches a per-result savedPositions map and reuses it when the same result is re-opened', async () => {
+    const routes = [
+      ...lineageRoutes,
+      [(u, sql) => /system\.columns/.test(sql), resp({ json: { data: [] } })],
+      [(u, sql) => /data_skipping_indices/.test(sql), resp({ json: { data: [] } })],
+    ];
+    const { app } = appForRun(routes, { openWindow: () => null });
+    await app.actions.showSchemaGraph({ kind: 'db', db: 'lin' }); // sets result.schemaGraph
+    await app.actions.expandSchemaGraph({ kind: 'db', db: 'lin' });
+    const positions = app.activeTab().result.schemaGraph.savedPositions;
+    expect(positions).toBeTypeOf('object');
+    document.body.querySelector('.graph-overlay').remove();
+    await app.actions.expandSchemaGraph({ kind: 'db', db: 'lin' });
+    expect(app.activeTab().result.schemaGraph.savedPositions).toBe(positions); // same map reused
     document.body.querySelector('.graph-overlay').remove();
   });
 });
