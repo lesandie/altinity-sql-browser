@@ -23,7 +23,8 @@ It reads your `~/.clickhouse-client/config.xml` connections and offers them as a
 For OAuth connections you also register `http://localhost:8900/sql` as a redirect
 URI with the IdP and allow CORS from localhost on the cluster (see README).
 
-Env: PORT (default 8900) · LOCAL_CH_CONFIG (default ~/.clickhouse-client/config.xml).
+Env: PORT (default 8900) · LOCAL_CH_CONFIG (default ~/.clickhouse-client/config.xml)
+   · SQL_BROWSER_SPA (override the sql.html path).
 """
 import json
 import os
@@ -31,8 +32,25 @@ import sys
 import xml.etree.ElementTree as ET
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SPA = os.path.join(ROOT, "dist", "sql.html")
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def _find_spa():
+    """Locate the built sql.html across both layouts (explicit override wins):
+      • $SQL_BROWSER_SPA            — explicit path
+      • <dir>/sql.html             — release bundle (local.py + sql.html together)
+      • <dir>/../dist/sql.html     — dev / in-repo checkout
+    Returns the first that exists, else the dev path (so the missing-file error
+    names the place a contributor expects to build into)."""
+    env = os.environ.get("SQL_BROWSER_SPA")
+    if env:
+        return env
+    bundle = os.path.join(HERE, "sql.html")
+    dev = os.path.join(HERE, "..", "dist", "sql.html")
+    return bundle if os.path.exists(bundle) else dev
+
+
+SPA = _find_spa()
 PORT = int(os.environ.get("PORT", "8900"))
 CH_CONFIG = os.environ.get("LOCAL_CH_CONFIG") or os.path.expanduser("~/.clickhouse-client/config.xml")
 
