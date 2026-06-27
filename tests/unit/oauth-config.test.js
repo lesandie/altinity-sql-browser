@@ -127,13 +127,25 @@ describe('loadConfigDoc hosts', () => {
         { label: 'antalya', url: 'https://antalya.demo.altinity.cloud', auth: 'oauth', idp: 'google' },
       ],
     });
-    expect(hosts[0]).toEqual({ label: 'demo', url: 'http://localhost:8123', auth: 'basic', user: 'default', password: 'pw', idp: '' });
-    expect(hosts[1]).toEqual({ label: 'antalya', url: 'https://antalya.demo.altinity.cloud', auth: 'oauth', user: '', password: '', idp: 'google' });
+    expect(hosts[0]).toEqual({ label: 'demo', url: 'http://localhost:8123', auth: 'basic', user: 'default', password: 'pw', idp: '', insecure: false });
+    expect(hosts[1]).toEqual({ label: 'antalya', url: 'https://antalya.demo.altinity.cloud', auth: 'oauth', user: '', password: '', idp: 'google', insecure: false });
   });
 
   it('falls back the label to the url and defaults missing fields', async () => {
     const { hosts } = await load({ idps: [], hosts: [{ url: 'http://h:8123' }] });
-    expect(hosts[0]).toEqual({ label: 'http://h:8123', url: 'http://h:8123', auth: 'basic', user: '', password: '', idp: '' });
+    expect(hosts[0]).toEqual({ label: 'http://h:8123', url: 'http://h:8123', auth: 'basic', user: '', password: '', idp: '', insecure: false });
+  });
+
+  it('carries the accept-invalid-certificate flag through as `insecure`', async () => {
+    const { hosts } = await load({
+      idps: [],
+      hosts: [
+        { label: 'audit', url: 'https://support-a.dev.altinity.cloud', user: 'mcp', insecure: true },
+        { label: 'plain', url: 'http://localhost:8123' },
+      ],
+    });
+    expect(hosts[0].insecure).toBe(true);
+    expect(hosts[1].insecure).toBe(false);
   });
 });
 

@@ -1421,3 +1421,23 @@ table.res-table tbody tr:hover td.idx { background: var(--bg-hover); }
   background: none; border: none; color: var(--error-fg);
   cursor: pointer; font-size: 16px; line-height: 1; padding: 0 4px;
 }
+
+/* Insecure (accept-invalid-certificate) saved connection: trust-the-cert step
+   shown under the picker. */
+.login-cert-warn {
+  margin-top: 8px; padding: 10px 12px;
+  display: flex; flex-direction: column; gap: 8px;
+  background: var(--error-bg); border: 1px solid var(--error-bd);
+  border-radius: 8px;
+}
+.login-cert-msg {
+  display: flex; gap: 8px; align-items: flex-start;
+  font-size: 11.5px; line-height: 1.5; color: var(--fg);
+}
+.login-cert-msg svg { flex: none; margin-top: 1px; color: var(--error-fg); }
+.login-cert-link {
+  display: inline-flex; align-items: center; gap: 6px; align-self: flex-start;
+  font-size: 11.5px; color: var(--accent); text-decoration: none;
+}
+.login-cert-link:hover { text-decoration: underline; }
+.login-cert-go { margin-top: 2px; }

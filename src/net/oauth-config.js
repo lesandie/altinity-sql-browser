@@ -69,9 +69,11 @@ function normalizeEntry(e) {
 
 /**
  * Map one raw `hosts[]` entry to a saved-connection descriptor for the login
- * picker: `{ label, url, auth, user, password, idp }`. `auth` is 'oauth' (sign in
- * via the named `idp`, querying `url` cross-origin) or 'basic' (prefill the
- * credentials form with `url`/`user`/`password`).
+ * picker: `{ label, url, auth, user, password, idp, insecure }`. `auth` is 'oauth'
+ * (sign in via the named `idp`, querying `url` cross-origin) or 'basic' (prefill
+ * the credentials form with `url`/`user`/`password`). `insecure` flags an
+ * accept-invalid-certificate host — the browser can't reach it until the user
+ * trusts the cert, so the picker surfaces that step (see renderLogin).
  */
 function normalizeHost(h) {
   const e = h || {};
@@ -82,6 +84,7 @@ function normalizeHost(h) {
     user: e.user || '',
     password: e.password || '',
     idp: e.idp || '',
+    insecure: !!e.insecure,
   };
 }
 

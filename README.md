@@ -186,6 +186,15 @@ offers them as a **Saved connection** dropdown on the login screen:
 - A connection carrying clickhouse-client's OAuth keys (`oauth-url`,
   `oauth-client-id`, `oauth-audience`) → an OAuth sign-in against that cluster.
 
+A connection with `<accept-invalid-certificate>1</accept-invalid-certificate>`
+(a self-signed or wrong-host TLS cert, common on dev tenants) is flagged in the
+picker. The browser refuses to `fetch()` such a host and JavaScript can't
+override that, so when you select it the login screen surfaces a one-time step:
+open the cluster in a new tab and accept its certificate, after which the SPA can
+reach it for the rest of the browser session. For an OAuth connection the sign-in
+redirect is held behind a **Continue** button so the cert is trusted before any
+post-login query hits the cluster.
+
 You can also ignore the picker and type a host/user/password by hand (host: include
 the scheme, e.g. `http://localhost:8123`; a bare host defaults to
 `https://<host>:8443`).

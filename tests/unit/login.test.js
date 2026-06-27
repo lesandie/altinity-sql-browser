@@ -110,6 +110,58 @@ describe('renderLogin — host picker', () => {
   });
 });
 
+describe('renderLogin — insecure (accept-invalid-certificate) hosts', () => {
+  const insecureHosts = [
+    { label: 'audit', url: 'https://support-a.tenant-a.dev.altinity.cloud', auth: 'basic', user: 'mcp', password: 'pw', idp: '', insecure: true },
+    { label: 'audit-oauth', url: 'https://support-a.tenant-a.dev.altinity.cloud', auth: 'oauth', user: '', password: '', idp: 'google', insecure: true },
+  ];
+  const withInsecure = (over = {}) => appWith({ loadIdps: async () => ({ idps: [], basicLogin: true, hosts: insecureHosts }), ...over });
+
+  it('basic insecure host: prefills the form and shows the cert-trust step with an open-cluster link (no Continue button)', async () => {
+    const login = vi.fn();
+    const app = withInsecure({ actions: { login } });
+    renderLogin(app); await tick();
+    selectHost(app.root, '0');
+    const [user, , host] = app.root.querySelectorAll('.login-input');
+    expect([host.value, user.value]).toEqual(['https://support-a.tenant-a.dev.altinity.cloud', 'mcp']);
+    const warn = app.root.querySelector('.login-cert-warn');
+    expect(warn.style.display).toBe('');
+    const link = warn.querySelector('.login-cert-link');
+    expect(link.getAttribute('href')).toBe('https://support-a.tenant-a.dev.altinity.cloud');
+    expect(link.textContent).toContain('Open audit');
+    expect(warn.querySelector('.login-cert-go')).toBeNull(); // basic: no SSO redirect to gate
+    expect(login).not.toHaveBeenCalled();
+  });
+
+  it('oauth insecure host: shows the cert step + Continue and does NOT auto-redirect until Continue is clicked', async () => {
+    const login = vi.fn(async () => {});
+    const app = withInsecure({ actions: { login } });
+    renderLogin(app); await tick();
+    selectHost(app.root, '1');
+    expect(login).not.toHaveBeenCalled(); // gated behind the cert-trust step
+    const go = app.root.querySelector('.login-cert-go');
+    expect(go).not.toBeNull();
+    click(go);
+    expect(login).toHaveBeenCalledWith('google', 'https://support-a.tenant-a.dev.altinity.cloud');
+  });
+
+  it('clears the cert step when switching to the placeholder or a normal connection', async () => {
+    const app = appWith({ loadIdps: async () => ({ idps: [], basicLogin: true, hosts: [
+      ...insecureHosts,
+      { label: 'plain', url: 'http://localhost:8123', auth: 'basic', user: 'default', password: 'pw', idp: '' },
+    ] }) });
+    renderLogin(app); await tick();
+    selectHost(app.root, '0');
+    expect(app.root.querySelector('.login-cert-warn').style.display).toBe('');
+    selectHost(app.root, '');
+    expect(app.root.querySelector('.login-cert-warn').style.display).toBe('none');
+    selectHost(app.root, '0');
+    expect(app.root.querySelector('.login-cert-warn').style.display).toBe('');
+    selectHost(app.root, '2'); // a normal (secure) basic connection
+    expect(app.root.querySelector('.login-cert-warn').style.display).toBe('none');
+  });
+});
+
 describe('renderLogin — SSO section', () => {
   it('no IdPs → no SSO button, divider hidden, credentials present', async () => {
     const app = appWith({ loadIdps: async () => ({ idps: [], basicLogin: true }) });

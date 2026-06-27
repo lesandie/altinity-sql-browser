@@ -13,6 +13,11 @@ It reads your `~/.clickhouse-client/config.xml` connections and offers them as a
     `oauth-client-id`, optional `oauth-client-secret` for a Web client like Google,
     `oauth-audience`) → an OAuth sign-in against that cluster.
 
+  A connection with `<accept-invalid-certificate>1</accept-invalid-certificate>`
+  is flagged `insecure` in config.json. The browser can't skip TLS validation
+  from fetch(), so the login screen walks the user through trusting the cert
+  once (opening the cluster in a tab) before connecting.
+
     npm run local            # build + serve, then open http://localhost:8900/sql
 
 For OAuth connections you also register `http://localhost:8900/sql` as a redirect
@@ -54,6 +59,11 @@ def build_config():
         if not name or not hostname:
             continue
         secure = _text(conn, "secure").lower() in ("1", "true", "yes")
+        # A self-signed / wrong-host TLS cert. The browser can't bypass cert
+        # validation from fetch(), so the SPA can't honour this on its own — it
+        # flags the connection and walks the user through trusting the cert once
+        # (see populateHosts in src/ui/login.js).
+        insecure = _text(conn, "accept-invalid-certificate", "accept_invalid_certificate").lower() in ("1", "true", "yes")
         http_port = _text(conn, "http_port", "http-port")
         scheme = "https" if secure else "http"
         url = f"{scheme}://{hostname}:{http_port}" if http_port else f"{scheme}://{hostname}"
@@ -72,10 +82,11 @@ def build_config():
                     "bearer": "access_token" if oauth_aud else "id_token",
                 })
                 seen.add(name)
-            hosts.append({"label": name, "url": url, "auth": "oauth", "idp": name})
+            hosts.append({"label": name, "url": url, "auth": "oauth", "idp": name, "insecure": insecure})
         else:
             hosts.append({"label": name, "url": url, "auth": "basic",
-                          "user": _text(conn, "user"), "password": _text(conn, "password")})
+                          "user": _text(conn, "user"), "password": _text(conn, "password"),
+                          "insecure": insecure})
     return json.dumps({"basic_login": True, "idps": idps, "hosts": hosts}).encode()
 
 

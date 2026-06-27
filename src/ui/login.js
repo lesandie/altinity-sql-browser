@@ -102,9 +102,13 @@ export function renderLogin(app, errorMsg) {
   // --- saved-connection picker (populated async; shown only when config lists hosts) ---
   let pickHosts = [];
   const hostPicker = h('select', { class: 'login-picker mono', onchange: onPickHost });
+  // Shown only for an `insecure` (accept-invalid-certificate) connection — the
+  // browser can't be reached until its cert is trusted (see showCertWarn).
+  const certWarn = h('div', { class: 'login-cert-warn', style: { display: 'none' } });
   const pickerSection = h('div', { class: 'login-field login-picker-field', style: { display: 'none' } },
     h('label', { class: 'login-lbl' }, 'Saved connection'),
-    hostPicker);
+    hostPicker,
+    certWarn);
 
   // Footer tag adapts to which methods are available (set by applyChrome once
   // the IdP list / basic_login flag resolve). The brand block is heading enough,
@@ -185,16 +189,56 @@ export function renderLogin(app, errorMsg) {
   }
 
   // Pick a saved connection: a basic one prefills the credentials form (+ reveals
-  // the host); an oauth one starts the SSO flow against that cluster.
+  // the host); an oauth one starts the SSO flow against that cluster. An
+  // `insecure` (accept-invalid-certificate) connection first surfaces the
+  // cert-trust step — and, for oauth, holds the redirect behind a Continue button
+  // so the cert is trusted before any post-login query reaches the cluster.
   function onPickHost() {
+    clearCertWarn();
     if (hostPicker.value === '') return;
     const hh = pickHosts[Number(hostPicker.value)];
-    if (hh.auth === 'oauth') { pickOAuth(hh); return; }
+    if (hh.insecure) showCertWarn(hh);
+    if (hh.auth === 'oauth') {
+      if (!hh.insecure) pickOAuth(hh); // insecure → wait for the warning's Continue button
+      return;
+    }
     hostInput.value = hh.url;
     userInput.value = hh.user;
     passInput.value = hh.password;
     advOpen = true; advField.style.display = ''; advChev.style.transform = 'rotate(0deg)';
     update();
+  }
+
+  // The browser refuses to fetch() a host with an untrusted TLS cert and JS can't
+  // override that — so for an `insecure` connection we point the user at the
+  // cluster to accept the cert once (per browser session). For oauth, the redirect
+  // is gated behind Continue so the post-login queries don't hit an untrusted host.
+  function showCertWarn(hh) {
+    const kids = [
+      h('div', { class: 'login-cert-msg' }, Icon.shield(),
+        h('span', null, 'This connection uses a self-signed or otherwise invalid TLS certificate. '
+          + 'Your browser blocks it until you open it once and click through the warning to trust the cert.')),
+      h('a', { class: 'login-cert-link mono', href: hh.url, target: '_blank', rel: 'noopener noreferrer' },
+        h('span', null, 'Open ' + hh.label + ' to accept its certificate'), Icon.arrow()),
+      // The opened host often 302-redirects (an auth gateway → its own login, a
+      // status page, etc.) once the handshake succeeds — that lands you somewhere
+      // unrelated, but the cert is already trusted by then. Say so, so the redirect
+      // doesn't read as a failure: close that tab and come back here.
+      h('div', { class: 'login-hint' },
+        'A certificate prompt should appear — choose proceed/accept. Any login or status '
+        + 'page it then redirects to is expected and unrelated; just close that tab, return here, and connect.'),
+    ];
+    if (hh.auth === 'oauth') {
+      kids.push(h('button', { class: 'login-btn btn-primary login-cert-go', onclick: () => pickOAuth(hh) },
+        Icon.shield(), h('span', null, 'Continue — sign in')));
+    }
+    certWarn.replaceChildren(...kids);
+    certWarn.style.display = '';
+  }
+
+  function clearCertWarn() {
+    certWarn.replaceChildren();
+    certWarn.style.display = 'none';
   }
 
   async function pickOAuth(hh) {
