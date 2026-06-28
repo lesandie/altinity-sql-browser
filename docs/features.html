@@ -87,26 +87,41 @@
   </div>
 </section>
 
-<!-- Data flow -->
-<section>
+<!-- Data flow (flagship) -->
+<section id="data-flow">
   <div class="wrap">
-    <div class="feature-row reverse">
-      <div class="txt">
-        <div class="eyebrow">Data flow</div>
-        <h3>A live map of how your data connects</h3>
-        <p>Drag a database or table onto the results pane to trace its data flow: source tables feeding
-          materialized views that write to aggregates, dictionaries pulling from tables, and views reading
-          downstream — colour-coded by engine with <em>feeds</em>, <em>writes</em>, <em>reads</em> and
-          <em>dict</em> edges. Open it fullscreen to drag nodes (with undo/redo) and click any node for its
-          columns, keys and DDL.</p>
-        <ul>
-          <li>Materialized views, dictionaries, Distributed / Buffer / Merge</li>
-          <li>Transitive, cross-database relationships</li>
-          <li>Drag-move layout with undo/redo · detail pane per node</li>
-        </ul>
-      </div>
-      <figure class="shot zoom"><img src="assets/img/lineage-fullscreen-dark.png" alt="A data-flow graph: events_raw feeding three materialized views that write to target tables, a products table feeding a dictionary, and a view reading from daily_sales." loading="lazy"></figure>
+    <div class="section-head">
+      <div class="eyebrow">Data flow · opens in its own browser tab</div>
+      <h2>A live schema diagram, not a static ERD</h2>
+      <p>This is what sets it apart from a plain query runner. Drag a database or table in and it maps how your
+        ClickHouse objects actually connect — then <strong>Expand</strong> opens the whole thing full-screen in
+        its own live browser tab you can keep beside the editor.</p>
     </div>
+    <figure class="shot zoom" style="max-width:1000px;margin:0 auto;">
+      <img src="assets/img/schema-tab-dark.png" alt="The full data-flow diagram open in its own browser tab: each object is a rich card showing its engine, row and byte counts, and every column with type and PK/SK badges — events_raw feeding three materialized views that write to target tables, products feeding a dictionary, and a view reading from daily_sales." loading="lazy">
+    </figure>
+    <p style="text-align:center;color:var(--faint);font-size:.9rem;margin:14px auto 0;max-width:760px;">
+      Every object is a <strong>rich card</strong> — engine, row/byte stats and each column with its type and
+      PK/SK badges — wired by <em>feeds</em> / <em>writes</em> / <em>reads</em> / <em>dict</em> edges.
+    </p>
+    <div class="grid cols-3" style="margin-top:42px;">
+      <div class="card">
+        <h3>Rich cards, not just names</h3>
+        <p>Each node carries its engine, row/byte counts and full column list with types and PK/SK badges —
+          covering tables, views, materialized views, dictionaries and Distributed / Buffer / Merge.</p>
+      </div>
+      <div class="card">
+        <h3>A real, editable canvas</h3>
+        <p>Opens in its own browser tab (kept live by the opener, so it still holds your OAuth token).
+          Drag nodes to rearrange — with undo/redo — pan, zoom and fit. Layout persists while the tab is open.</p>
+      </div>
+      <div class="card">
+        <h3>Click any node for detail</h3>
+        <p>A side pane shows full columns, keys, partitions and <code class="k">SHOW CREATE</code> DDL.
+          Relationships are discovered transitively, across databases.</p>
+      </div>
+    </div>
+    <p style="text-align:center;margin-top:30px;"><a href="screenshots.html">See more screenshots →</a></p>
   </div>
 </section>
 
