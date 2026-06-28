@@ -125,6 +125,82 @@
   </div>
 </section>
 
+<!-- Query library (flagship) -->
+<section id="library" style="border-top:1px solid var(--border);">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="eyebrow">Query library · save · load · export</div>
+      <h2>A portable library of saved queries</h2>
+      <p>Turn ad-hoc SQL into a reusable, shareable collection — each query with a title and description,
+        searchable and star-able, saved as one portable file you can hand to a teammate or check into git.</p>
+    </div>
+
+    <div class="feature-row">
+      <div class="txt">
+        <h3>Save, organize, reload</h3>
+        <p>Hit <strong>Save</strong> (⌘S) to add the current query to the library with a name and an optional
+          description. The whole library is one <strong>JSON</strong> file — <em>Save</em> it, <em>Open</em> a
+          colleague's, or <em>Append</em> one into yours with smart de-duplication.</p>
+        <ul>
+          <li>Title + description on every query</li>
+          <li>Search, star/favourite, rename, delete</li>
+          <li>Named libraries — keep one per project</li>
+          <li>A non-persistent history of recent runs</li>
+        </ul>
+      </div>
+      <figure class="shot zoom"><img src="assets/img/library-filemenu-dark.png" alt="The File menu open over the workbench: New Library, Save JSON, Open…, Append…, Download Markdown (.md) and Download SQL (.sql), with the titled, described query list in the left sidebar." loading="lazy"></figure>
+    </div>
+
+    <div class="feature-row reverse">
+      <div class="txt">
+        <h3>Export to Markdown or SQL</h3>
+        <p>Beyond the round-trip JSON, the library exports to two human-readable formats — so it doubles as a
+          living <strong>cookbook</strong>. Markdown gives a fenced, readable doc; SQL gives a runnable batch.
+          The title and description travel with every query.</p>
+        <ul>
+          <li><strong>Markdown</strong> — <code class="k">###</code> heading + fenced <code class="k">```sql</code> block</li>
+          <li><strong>SQL</strong> — a <code class="k">/* name + description */</code> comment then the statement</li>
+        </ul>
+      </div>
+      <figure class="shot zoom"><img src="assets/img/library-save-dark.png" alt="The Save Query dialog with a name field and an optional description field whose placeholder reads 'included in Markdown export'." loading="lazy"></figure>
+    </div>
+
+    <div class="grid cols-2" style="margin-top:8px;">
+      <div>
+        <p style="font-weight:600;margin:0 0 8px;">Download Markdown <code class="k">.md</code></p>
+        <pre class="code">### Flights by month — 2023
+
+Monthly US flight volume. A numeric column
+named "month" is detected as an ordinal axis
+→ vertical Column chart.
+
+&#96;&#96;&#96;sql
+SELECT Month AS month, count() AS flights
+FROM ontime.fact_ontime
+WHERE Year = 2023
+GROUP BY month
+ORDER BY month
+&#96;&#96;&#96;</pre>
+      </div>
+      <div>
+        <p style="font-weight:600;margin:0 0 8px;">Download SQL <code class="k">.sql</code></p>
+        <pre class="code"><span class="c">/* Flights by month — 2023
+Monthly US flight volume. A numeric column
+named "month" is detected as an ordinal axis
+→ vertical Column chart. */</span>
+SELECT Month AS month, count() AS flights
+FROM ontime.fact_ontime
+WHERE Year = 2023
+GROUP BY month
+ORDER BY month;</pre>
+      </div>
+    </div>
+    <p style="text-align:center;color:var(--faint);font-size:.9rem;margin-top:14px;">
+      Real output from the bundled <a href="https://github.com/Altinity/altinity-sql-browser/blob/main/examples/ontime-charts.json">ontime-charts</a> library — titles and descriptions preserved in both formats.
+    </p>
+  </div>
+</section>
+
 <!-- Editor -->
 <section class="alt">
   <div class="wrap">
@@ -155,7 +231,7 @@
     </div>
     <div class="grid cols-3">
       <div class="card"><h3>Schema explorer</h3><p>A filterable tree of databases → tables → columns with engines and row counts. Double-click to insert names; drag onto the editor or the results pane.</p></div>
-      <div class="card"><h3>Saved-query library</h3><p>Name, describe and star queries; search them; import/export the whole library as JSON, Markdown or SQL. A non-persistent history tracks recent runs.</p></div>
+      <div class="card"><h3>Copy &amp; export results</h3><p>Copy a result as TSV (pastes straight into a spreadsheet) or download it as RFC-4180 CSV. Live row, byte and elapsed-time stats sit in the result toolbar.</p></div>
       <div class="card"><h3>Share links</h3><p>Encode a query (and its chart config) into a URL — open it and land on the same query. Zero server-side state.</p></div>
       <div class="card"><h3>Streaming results</h3><p>Results stream in with a live progress bar and row/byte/time counters. Cancel a running query and keep the partial output.</p></div>
       <div class="card"><h3>Tabbed workspace</h3><p>Multiple query tabs, each with its own editor, result view and chart config. Resizable editor / sidebar split.</p></div>
