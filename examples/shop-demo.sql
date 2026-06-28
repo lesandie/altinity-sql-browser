@@ -86,11 +86,14 @@ SELECT number, concat('Product ', toString(number)),
        ['Electronics','Books','Home','Toys','Garden'][(number % 5) + 1]
 FROM numbers(50);
 
+-- ~300k events spread over 90 days. Each dimension is seeded from a DIFFERENT
+-- rand() so they're independent — otherwise (e.g. product and event_type both
+-- keyed off number % 5) purchases would only ever hit a couple of categories.
 INSERT INTO shop.events_raw
-SELECT now() - toIntervalHour(number % 240),
-       number % 1000,
-       ['US','GB','DE','FR','IN'][(number % 5) + 1],
-       number % 50,
-       round((number % 500) + 0.99, 2),
-       ['purchase','view','cart'][(number % 3) + 1]
-FROM numbers(20000);
+SELECT now() - toIntervalMinute(number % (90 * 24 * 60))            AS event_time,
+       rand(number)     % 5000                                     AS user_id,
+       ['US','GB','DE','FR','IN','BR','JP'][(rand(number + 1) % 7) + 1] AS country,
+       rand(number + 2) % 50                                       AS product_id,
+       round((rand(number + 3) % 48000) / 100 + 19.99, 2)          AS amount,
+       ['purchase','view','cart','purchase'][(rand(number + 4) % 4) + 1] AS event_type
+FROM numbers(300000);
