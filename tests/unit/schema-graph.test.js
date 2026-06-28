@@ -181,16 +181,31 @@ describe('buildSchemaGraph', () => {
     expect(ids.has('lin.events_daily')).toBe(true); // events_mv → events_daily (outgoing)
   });
 
-  it('drops isolated tables from a whole-DB graph when there is lineage', () => {
+  it('keeps isolated tables in a whole-DB graph even when there is lineage', () => {
+    // A whole-DB view shows ALL objects: the lineage chain AND the unlinked tables
+    // alongside it (the lineage edges are still drawn between the linked ones).
     const rows = { tables: [
       T('lin', 'src', 'MergeTree'),
       T('lin', 'mv', 'MaterializedView', { astTables: ['lin.src'], create_table_query: 'CREATE MATERIALIZED VIEW lin.mv TO lin.dst AS SELECT 1 FROM lin.src' }),
       T('lin', 'dst', 'MergeTree'),
-      T('lin', 'orphan', 'MergeTree'), // no relationships → pruned
+      T('lin', 'orphan', 'MergeTree'), // unlinked — still drawn
     ], dictionaries: [] };
-    const ids = new Set(buildSchemaGraph(rows, { kind: 'db', db: 'lin' }).nodes.map((n) => n.id));
+    const g = buildSchemaGraph(rows, { kind: 'db', db: 'lin' });
+    const ids = new Set(g.nodes.map((n) => n.id));
     expect(ids.has('lin.src')).toBe(true);
-    expect(ids.has('lin.orphan')).toBe(false);
+    expect(ids.has('lin.orphan')).toBe(true);   // isolated, but kept
+    expect(eset(g).has('lin.src>lin.mv:feeds')).toBe(true); // lineage edges still present
+  });
+
+  it('strips the focus-db prefix from same-db node labels but keeps it cross-db', () => {
+    const rows = { tables: [
+      T('lin', 'events', 'MergeTree'), // same db, isolated
+      T('lin', 'dist', 'Distributed', { engine_full: "Distributed('cl', 'other', 'remote_tbl')" }),
+    ], dictionaries: [] };
+    const byId = Object.fromEntries(buildSchemaGraph(rows, { kind: 'db', db: 'lin' }).nodes.map((n) => [n.id, n]));
+    expect(byId['lin.events'].label).toBe('events');                 // same db → bare table name
+    expect(byId['lin.dist'].label).toBe('dist');                     // same db → bare table name
+    expect(byId['other.remote_tbl'].label).toBe('other.remote_tbl'); // another db → stays qualified
   });
 
   it('keeps every table as a standalone node when a whole-DB graph has no relationships', () => {
