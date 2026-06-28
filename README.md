@@ -1,5 +1,7 @@
 # Altinity SQL Browser
 
+**🌐 Website & screenshots: [docs.altinity.com/altinity-sql-browser](https://docs.altinity.com/altinity-sql-browser/)**
+
 An OAuth-gated **SQL browser for any ClickHouse cluster** — schema explorer,
 tabbed SQL editor with syntax highlighting, find/replace, bracket matching, and
 schema-aware autocomplete, streaming results with table / JSON / chart views,
@@ -15,7 +17,8 @@ held at **100% test coverage**.
 
 ## Demo & examples
 
-Try it live on the Antalya demo cluster: **https://antalya.demo.altinity.cloud/sql**.
+See the [**feature tour, deployment guide and screenshots**](https://docs.altinity.com/altinity-sql-browser/)
+on the project site. Try it live on the Antalya demo cluster: **https://antalya.demo.altinity.cloud/sql**.
 The [**ontime chart demo**](docs/ONTIME-CHART-DEMO.md) is a ready-made library of 10
 queries (load [`examples/ontime-charts.json`](examples/ontime-charts.json) via
 **File ▾ → Open**) that walks through every chart type and feature against the public
