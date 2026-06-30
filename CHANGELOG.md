@@ -10,6 +10,30 @@ auto-generated per-PR notes; this file is the curated, human-readable history.
 ## [Unreleased]
 
 ### Added
+- **Multiquery + run-selection** (#83): run a `;`-separated script (DDL / INSERT /
+  SELECT) in one shot, or run just the highlighted text. ⌘+Enter auto-detects — a
+  single statement behaves exactly as before; more than one runs **sequentially**
+  (one ClickHouse request per statement, stopping on the first failure) into a
+  compact per-statement summary grid. A non-empty editor selection runs only that
+  text (the Run button flips to **Run selection**); a single selected statement
+  still gets the full Table/Chart/EXPLAIN view. Row-returning statements show the
+  first row inline (comma-separated) — click to open all rows (capped at 100) in a
+  side pane; effectful statements show **OK**. Each grid row also shows that
+  statement's own execution time (the toolbar still shows the script total). The
+  click-to-open row pane is the **same sortable + resizable grid** as the main
+  results table (one shared component). A script that needs cross-statement state
+  (a `CREATE TEMPORARY` table or a session `SET`) runs inside a **per-tab
+  ClickHouse HTTP session** so that state persists across its separate
+  per-statement requests; ordinary scripts run session-less. Cancel aborts mid-script. Splitting
+  is purely lexical (`src/core/sql-split.js`), skipping `;` inside string/identifier
+  literals and `--` / `#` / `/* */` comments. Known limitation: an `INSERT … FORMAT
+  …` with inline data containing `;` mis-splits — run those on their own.
+  **Format** pretty-prints each statement of a script and rejoins them (`;` + blank
+  line; best-effort — an unformattable statement keeps its text), with a busy
+  spinner on the button. **Explain** shows a clear message instead of a generic
+  ClickHouse error when the editor holds more than one statement. Opening a saved
+  query / history entry **auto-runs only read-only queries** — an effectful one
+  (CREATE/ALTER/DROP/INSERT/…) loads into the editor without executing.
 - **Result-row cap** with a 100 / 500 / 1000 / 5000 / 10000 selector in the result
   toolbar (default **500**, a global preference persisted across tabs and reloads).
   A normal `SELECT` now fetches at most the selected cap rather than pulling every
@@ -43,6 +67,26 @@ auto-generated per-PR notes; this file is the curated, human-readable history.
   loads rather than in-place mutation. This **completes the migration**. (#88, #91)
 
 ### Fixed
+- Multiquery scripts no longer fail intermittently with **"Network error"**. A
+  ClickHouse HTTP session is now attached **only when the SQL actually needs one**
+  (a `CREATE TEMPORARY` table or a session `SET`), or when the tab already opened
+  one (sticky, so that state persists across runs in the tab) — ordinary scripts
+  run session-less, removing the session-lock / replica-affinity reset that
+  surfaced (behind a proxy/LB) as a reset connection. When a session *is* in use,
+  a transient failure is retried **only when safe**: a `SESSION_IS_LOCKED`
+  (rejected before execution) or a connection reset on a **read-only** statement.
+  A connection reset on an `INSERT`/DDL is **not** retried — it may have executed
+  server-side, so it's surfaced as "the statement may have executed; re-run
+  manually" rather than silently double-applied.
+- The `session_id` / `query_id` fallback used when `crypto.randomUUID` is
+  unavailable (non-secure `http://` contexts) now mixes in `Math.random` instead of
+  only a coarse `performance.now()`, so two tabs can't mint the same id and collide
+  on the session lock.
+- Result-table **column resize** now uses a splitter model: dragging a column's
+  right edge trades width with its right neighbor (the table's total width and the
+  other columns stay put), instead of growing the whole table and shifting later
+  columns sideways. Dragging the last column still widens the table. Applies to the
+  data grid, the multiquery script grid, and the script-row pane (one shared grid).
 - The fullscreen schema / EXPLAIN graph panels were mis-sized on **Safari** (#70).
   They size off viewport units, and engines disagree on how `vw`/`vh` interact
   with `html{zoom}`: Chromium's ignore `zoom` (so `100vh` overshoots one screen by

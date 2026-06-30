@@ -1491,6 +1491,28 @@ table.res-table tbody tr:hover td.idx { background: var(--bg-hover); }
   padding: 0 6px; outline: none; cursor: pointer;
 }
 
+/* multiquery script summary grid */
+.script-grid table.res-table { table-layout: fixed; width: 100%; }
+/* initial proportions (drag-resize then pins px widths, like the data grid) */
+.script-grid th.script-sql, .script-grid td.script-sql { width: 25%; }
+.script-grid th.script-res { width: 65%; }
+.script-grid th.script-time, .script-grid td.script-time { width: 10%; text-align: right; }
+.script-grid th { position: relative; } /* anchor the col-resize-h handle */
+.script-grid td.script-sql .cell-val { font-family: var(--mono); color: var(--fg-mute); }
+.script-grid td.script-time { font-family: var(--mono); font-size: 11px; color: var(--fg-faint); white-space: nowrap; }
+.script-cell { font-family: var(--mono); font-size: 12px; }
+.script-cell.ok { color: #10b981; font-weight: 600; }
+.script-cell.err { color: #ef4444; white-space: normal; word-break: break-word; }
+.script-cell.rows { cursor: pointer; }
+.script-cell.rows:hover { background: var(--hover); }
+.script-cell .script-preview { color: var(--fg); }
+.script-cell .script-meta { color: var(--fg-faint); margin-left: 8px; font-size: 11px; }
+.script-running {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 14px; font-size: 12px; color: var(--fg-mute);
+  border-top: 1px solid var(--border);
+}
+
 /* scrollbars */
 *::-webkit-scrollbar { width: 10px; height: 10px; }
 *::-webkit-scrollbar-track { background: transparent; }

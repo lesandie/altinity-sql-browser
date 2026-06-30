@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { renderResults, renderJson, renderTable, renderChart, colResizeWidth, openCellDetail, installChartZoomFix, visCap } from '../../src/ui/results.js';
+import { renderResults, renderJson, renderTable, renderChart, colResizeWidth, openCellDetail, openRowsViewer, installChartZoomFix, visCap } from '../../src/ui/results.js';
 import { makeApp } from '../helpers/fake-app.js';
 import { newResult } from '../../src/core/stream.js';
 import { schemaKey } from '../../src/core/chart-data.js';
@@ -257,29 +257,52 @@ describe('column resize', () => {
     expect(app.state.resultSort).toEqual(before); // stopPropagation → no sort
   });
 
-  it('dragging a handle fixes the layout and updates widths; re-drag reuses them', () => {
+  it('first drag freezes the layout (measures every column) and switches to fixed', () => {
     const app = appWithResult(tableResult());
     renderResults(app);
-    const r = app.activeTab().result;
+    const r = app.activeTab().result; // colWidths empty → freeze path
     const region = app.dom.resultsRegion;
-    let handle = region.querySelectorAll('.res-table th .col-resize-h')[0];
-    const win = handle.ownerDocument.defaultView;
-    // first drag: colWidths empty → measure all columns, switch to fixed layout
+    const handle = region.querySelectorAll('.res-table th .col-resize-h')[0];
     handle.dispatchEvent(new MouseEvent('mousedown', { clientX: 200, bubbles: true }));
     const table = region.querySelector('.res-table');
     expect(table.classList.contains('fixed')).toBe(true);
-    expect(Object.keys(r.colWidths)).toContain('idx');
-    win.dispatchEvent(new MouseEvent('mousemove', { clientX: 320 }));
-    expect(r.colWidths[0]).toBe(120); // startW 0 + 120/1 (scale NaN→1 in jsdom)
-    win.dispatchEvent(new MouseEvent('mouseup', {}));
-    win.dispatchEvent(new MouseEvent('mousemove', { clientX: 999 }));
-    expect(r.colWidths[0]).toBe(120); // listeners removed on mouseup
+    expect(Object.keys(r.colWidths).sort()).toEqual(['0', '1', 'idx']); // every column measured
+    handle.ownerDocument.defaultView.dispatchEvent(new MouseEvent('mouseup', {}));
+  });
 
-    // second drag on column 1: colWidths already populated → measure skipped
-    handle = region.querySelectorAll('.res-table th .col-resize-h')[1];
+  it('splitter model: dragging a border grows the column and shrinks its neighbor (total constant)', () => {
+    const r = tableResult();
+    r.colWidths = { idx: 36, 0: 100, 1: 100 }; // pre-seeded so the pair math is meaningful
+    const app = appWithResult(r);
+    renderResults(app);
+    const region = app.dom.resultsRegion;
+    const win = region.ownerDocument.defaultView;
+    const handle = region.querySelectorAll('.res-table th .col-resize-h')[0]; // col 0, neighbor col 1
     handle.dispatchEvent(new MouseEvent('mousedown', { clientX: 100, bubbles: true }));
-    win.dispatchEvent(new MouseEvent('mousemove', { clientX: 180 }));
-    expect(r.colWidths[1]).toBe(80);
+    win.dispatchEvent(new MouseEvent('mousemove', { clientX: 130 })); // +30
+    expect(r.colWidths[0]).toBe(130);
+    expect(r.colWidths[1]).toBe(70); // neighbor gave up 30 — pair sum stays 200
+    // drag past the neighbor's floor: neighbor clamps at MIN_COL (48), column caps
+    win.dispatchEvent(new MouseEvent('mousemove', { clientX: 999 }));
+    expect(r.colWidths[1]).toBe(48);
+    expect(r.colWidths[0]).toBe(152); // 200 - 48
+    win.dispatchEvent(new MouseEvent('mouseup', {}));
+    win.dispatchEvent(new MouseEvent('mousemove', { clientX: 0 }));
+    expect(r.colWidths[0]).toBe(152); // listeners removed on mouseup
+  });
+
+  it('dragging the last column has no neighbor, so it grows the table', () => {
+    const r = tableResult();
+    r.colWidths = { idx: 36, 0: 100, 1: 100 };
+    const app = appWithResult(r);
+    renderResults(app);
+    const region = app.dom.resultsRegion;
+    const win = region.ownerDocument.defaultView;
+    const handle = region.querySelectorAll('.res-table th .col-resize-h')[1]; // last data column
+    handle.dispatchEvent(new MouseEvent('mousedown', { clientX: 100, bubbles: true }));
+    win.dispatchEvent(new MouseEvent('mousemove', { clientX: 150 })); // +50
+    expect(r.colWidths[1]).toBe(150);
+    expect(r.colWidths[0]).toBe(100); // unchanged — no redistribution
     win.dispatchEvent(new MouseEvent('mouseup', {}));
   });
 
@@ -669,5 +692,172 @@ describe('schema lineage result', () => {
     expect(region.querySelector('svg.explain-graph')).toBeNull();
     expect(region.querySelector('.placeholder').textContent).toMatch(/No objects in target_all/);
     expect([...region.querySelectorAll('.res-act')].find((b) => /Expand/.test(b.textContent))).toBeFalsy();
+  });
+});
+
+describe('multiquery script grid (#83)', () => {
+  const scriptResult = (over = {}) => ({
+    elapsedMs: 12,
+    script: [
+      { sql: 'CREATE TABLE t (a Int8)', status: 'ok', ms: 3 },
+      { sql: 'SELECT count() AS c\nFROM t', status: 'rows', columns: [{ name: 'c', type: 'UInt64' }], rows: [['1'], ['2']], truncated: false, preview: '1', ms: 7 },
+      { sql: 'SELECT * FROM nope', status: 'rows', columns: [], rows: [], ms: 1 },
+      { sql: 'BAD SQL', status: 'error', error: 'DB::Exception: boom', ms: 2 },
+    ],
+    ...over,
+  });
+
+  it('renders one row per statement with OK / preview / 0-rows / error outcomes', () => {
+    const app = appWithResult(scriptResult());
+    renderResults(app);
+    const region = app.dom.resultsRegion;
+    expect(region.querySelector('.script-grid')).not.toBeNull();
+    expect(region.querySelector('.res-graph-title').textContent).toContain('4 statements');
+    const cells = [...region.querySelectorAll('.script-cell')];
+    expect(cells[0].textContent).toBe('OK');
+    expect(cells[1].textContent).toContain('1'); // preview
+    expect(cells[1].textContent).toContain('2 rows');
+    expect(cells[2].textContent).toBe('(0 rows)');
+    expect(cells[3].textContent).toContain('boom');
+    // SQL is collapsed to one line, full text on the title attribute
+    const sqlCell = region.querySelector('tbody td.script-sql');
+    expect(sqlCell.querySelector('.cell-val').textContent).toBe('CREATE TABLE t (a Int8)');
+  });
+
+  it('flags a truncated SELECT in its row meta', () => {
+    const app = appWithResult(scriptResult({
+      script: [{ sql: 'SELECT * FROM big', status: 'rows', columns: [{ name: 'a', type: 'Int' }], rows: [['x']], truncated: true, preview: 'x' }],
+    }));
+    renderResults(app);
+    expect(app.dom.resultsRegion.querySelector('.script-cell.rows').textContent).toContain('first 100');
+  });
+
+  it('clicking a SELECT row opens the rows pane; Escape and backdrop close it', () => {
+    const app = appWithResult(scriptResult());
+    renderResults(app);
+    click(app.dom.resultsRegion.querySelector('.script-cell.rows'));
+    let backdrop = document.querySelector('.cd-backdrop');
+    expect(backdrop).not.toBeNull();
+    expect(backdrop.querySelectorAll('tbody tr')).toHaveLength(2); // both rows
+    expect(backdrop.querySelector('.cd-type').textContent).toContain('2 rows');
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(document.querySelector('.cd-backdrop')).toBeNull();
+    // reopen + close via backdrop click
+    click(app.dom.resultsRegion.querySelector('.script-cell.rows'));
+    backdrop = document.querySelector('.cd-backdrop');
+    click(backdrop);
+    expect(document.querySelector('.cd-backdrop')).toBeNull();
+  });
+
+  it('openRowsViewer renders NULL cells empty and flags a truncated count', () => {
+    const app = makeApp();
+    openRowsViewer(app, { columns: [{ name: 'x', type: 'String' }, { name: 'y', type: 'String' }], rows: [['a', null]], truncated: true });
+    const backdrop = document.querySelector('.cd-backdrop');
+    expect(backdrop.querySelector('.cd-type').textContent).toContain('1+ row');
+    const cells = [...backdrop.querySelectorAll('tbody td')];
+    expect(cells[cells.length - 1].textContent).toBe(''); // null → empty
+    backdrop.remove();
+  });
+
+  it('the rows pane is the shared grid: sortable headers + clickable cells', () => {
+    const app = makeApp();
+    openRowsViewer(app, { columns: [{ name: 'n', type: 'UInt64' }], rows: [['2'], ['1'], ['3']] });
+    let backdrop = document.querySelector('.cd-backdrop');
+    // a data column header sorts the pane in place (local sort state)
+    const colHeader = [...backdrop.querySelectorAll('thead th')].find((th) => th.textContent.includes('n'));
+    click(colHeader);
+    backdrop = document.querySelector('.cd-backdrop');
+    const firstCell = backdrop.querySelector('tbody tr td.cell .cell-val');
+    expect(firstCell.textContent).toBe('1'); // ascending now
+    // clicking a cell opens the (stacked) cell-detail drawer
+    click(backdrop.querySelector('tbody td.cell'));
+    expect(document.querySelectorAll('.cd-backdrop').length).toBe(2);
+    document.querySelectorAll('.cd-backdrop').forEach((b) => b.remove());
+  });
+
+  it('Escape closes only the topmost stacked drawer (cell first, then the rows pane)', () => {
+    const app = makeApp();
+    openRowsViewer(app, { columns: [{ name: 'n', type: 'String' }], rows: [['x']] });
+    click(document.querySelector('.cd-backdrop tbody td.cell')); // opens a stacked cell drawer
+    expect(document.querySelectorAll('.cd-backdrop')).toHaveLength(2);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(document.querySelectorAll('.cd-backdrop')).toHaveLength(1); // only the cell drawer closed
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(document.querySelectorAll('.cd-backdrop')).toHaveLength(0); // now the rows pane
+  });
+
+  it('toolbar shows live elapsed + Cancel while running, with a running footer', () => {
+    const app = appWithResult(scriptResult(), { running: true });
+    renderResults(app);
+    const region = app.dom.resultsRegion;
+    const cancel = region.querySelector('.cancel-act');
+    expect(cancel).not.toBeNull();
+    expect(region.querySelector('.script-running')).not.toBeNull();
+    click(cancel);
+    expect(app.actions.cancel).toHaveBeenCalled();
+  });
+
+  it('toolbar shows total elapsed + a cancelled badge when a script was aborted', () => {
+    const app = appWithResult(scriptResult({ cancelled: true }));
+    renderResults(app);
+    const region = app.dom.resultsRegion;
+    expect(region.querySelector('.cancelled-badge')).not.toBeNull();
+    expect(region.textContent).toContain('12 ms');
+    expect(region.querySelector('.script-running')).toBeNull();
+  });
+
+  it('handles a single-statement script label without an "s"', () => {
+    const app = appWithResult(scriptResult({ script: [{ sql: 'SELECT 1', status: 'ok' }] }));
+    renderResults(app);
+    expect(app.dom.resultsRegion.querySelector('.res-graph-title').textContent).toContain('1 statement');
+  });
+
+  it('shows each statement’s own execution time in a third column', () => {
+    const app = appWithResult(scriptResult());
+    renderResults(app);
+    const region = app.dom.resultsRegion;
+    expect([...region.querySelectorAll('thead th')].map((th) => th.textContent.trim())).toEqual(['Statement', 'Result', 'Time']);
+    expect([...region.querySelectorAll('tbody td.script-time')].map((td) => td.textContent)).toEqual(['3 ms', '7 ms', '1 ms', '2 ms']);
+  });
+
+  it('leaves the Time cell blank when a statement has no recorded ms', () => {
+    const app = appWithResult(scriptResult({ script: [{ sql: 'SELECT 1', status: 'ok' }] }));
+    renderResults(app);
+    expect(app.dom.resultsRegion.querySelector('tbody td.script-time').textContent).toBe('');
+  });
+
+  it('columns are drag-resizable: 3 handles, keyed by plain index (no idx col), splitter model', () => {
+    const r = scriptResult({ colWidths: { 0: 200, 1: 400, 2: 100 } }); // pre-seeded pair math
+    const app = appWithResult(r);
+    renderResults(app);
+    const region = app.dom.resultsRegion;
+    const handles = region.querySelectorAll('.script-grid th .col-resize-h');
+    expect(handles).toHaveLength(3); // Statement, Result, Time
+    const win = handles[0].ownerDocument.defaultView;
+    handles[0].dispatchEvent(new MouseEvent('mousedown', { clientX: 100, bubbles: true })); // col 0, neighbor col 1
+    win.dispatchEvent(new MouseEvent('mousemove', { clientX: 150 })); // +50
+    expect(r.colWidths[0]).toBe(250);
+    expect(r.colWidths[1]).toBe(350); // neighbor shrank by 50; pair sum stays 600
+    expect(r.colWidths[2]).toBe(100); // untouched
+    win.dispatchEvent(new MouseEvent('mouseup', {}));
+  });
+
+  it('first drag on the script grid freezes every column (keys 0/1/2, no idx)', () => {
+    const app = appWithResult(scriptResult()); // no colWidths → freeze path
+    renderResults(app);
+    const r = app.activeTab().result;
+    const region = app.dom.resultsRegion;
+    region.querySelector('.script-grid th .col-resize-h').dispatchEvent(new MouseEvent('mousedown', { clientX: 100, bubbles: true }));
+    expect(region.querySelector('.res-table').classList.contains('fixed')).toBe(true);
+    expect(Object.keys(r.colWidths).sort()).toEqual(['0', '1', '2']);
+    region.ownerDocument.defaultView.dispatchEvent(new MouseEvent('mouseup', {}));
+  });
+
+  it('reapplies stored script-grid widths on re-render', () => {
+    const app = appWithResult(scriptResult({ colWidths: { 0: 120, 1: 300, 2: 60 } }));
+    renderResults(app);
+    const cells = app.dom.resultsRegion.querySelectorAll('.script-grid thead th');
+    expect(cells[0].style.width).toBe('120px');
+    expect(cells[2].style.width).toBe('60px');
   });
 });

@@ -7,8 +7,10 @@
 import { h, zoomScale, fixedAnchor } from './dom.js';
 import { Icon } from './icons.js';
 import {
-  createState, activeTab, KEYS, recordHistory, saveQuery, savedForTab, tabChart, normalizeRowLimit,
+  createState, activeTab, KEYS, recordHistory, recordScriptHistory, saveQuery, savedForTab, tabChart, normalizeRowLimit,
 } from '../state.js';
+import { splitStatements, isRowReturning, leadingKeyword } from '../core/sql-split.js';
+import { parseSelectResult, firstRowPreview, SELECT_ROW_CAP } from '../core/script-result.js';
 import { saveJSON, saveStr } from '../core/storage.js';
 import { decodeJwtPayload, isTokenExpired } from '../core/jwt.js';
 import { sqlString, inferQueryName, shortVersion, userShortName, withStatementBreak, detectSqlFormat } from '../core/format.js';
@@ -421,6 +423,20 @@ export function createApp(env = {}) {
 
   // --- query run ---------------------------------------------------------
   const now = () => (env.now || (() => win.performance.now()))();
+  // A unique id for a query_id / session_id. Prefer crypto.randomUUID; its
+  // fallback (non-secure context, where randomUUID is undefined) must still be
+  // unique across tabs sharing one time origin — so mix in Math.random, not just
+  // `now()` (performance.now is coarsened and can repeat for back-to-back calls).
+  const uid = (prefix) => (cryptoObj.randomUUID
+    ? cryptoObj.randomUUID()
+    : prefix + now().toString(36) + '-' + Math.random().toString(36).slice(2, 10));
+  // One retry after this delay (ms) smooths a transient failure on the rapid,
+  // same-session requests of a script (env-injectable; tests set 0).
+  const retryMs = env.retryMs != null ? env.retryMs : 250;
+  const sleep = (ms) => new Promise((r) => win.setTimeout(r, ms));
+  // ClickHouse's transient "session is busy / locked by a concurrent client"
+  // (SESSION_IS_LOCKED, code 373) — retryable once the prior request releases it.
+  const SESSION_BUSY = /SESSION_IS_LOCKED|session .* is locked|locked by a concurrent/i;
   // Milliseconds since the running query started (0 when idle). Used for the
   // live counter, computed fresh so each render/tick shows the current value.
   app.elapsedMs = () => (app.state.runT0 != null ? now() - app.state.runT0 : 0);
@@ -431,10 +447,41 @@ export function createApp(env = {}) {
   }
   app.tickElapsed = tickElapsed;
 
+  // A ClickHouse HTTP session ties a tab's requests together so session state —
+  // temporary tables, SET settings — survives across the separate HTTP requests
+  // of a multiquery script (and across successive runs in the tab). ClickHouse's
+  // HTTP interface runs one statement per request and is otherwise stateless, so
+  // without this a `CREATE TEMPORARY TABLE …; INSERT …; SELECT …` script can't
+  // see its own temp table. The id is per-tab (lazily minted) so tabs don't share
+  // state and never collide on the per-session lock (only one query runs at a
+  // time, guarded by `running`). No `session_timeout` override is needed:
+  // ClickHouse resets the idle timer when each query is *released* (end of the
+  // request, not the start) and cancels it while a query runs, so the default
+  // (60s) never lapses between a script's back-to-back statements.
+  function sessionParams(tab) {
+    tab.chSession = tab.chSession || uid('sess-');
+    return { session_id: tab.chSession };
+  }
+  // Only TEMPORARY tables and session `SET`s need a session; permanent DDL/DML and
+  // SELECTs are global. So we attach a session_id ONLY when the SQL needs one — or
+  // when the tab already opened one (sticky, so a temp table / SET from an earlier
+  // run stays visible to later runs in that tab). Ordinary scripts run session-LESS,
+  // which avoids the session lock / replica-affinity reset that intermittently
+  // surfaces as a "Network error". (Schema / reference loads are always
+  // session-less — they fan out in parallel and would deadlock on the lock.)
+  const needsSession = (sqls) => sqls.some((s) => /\bTEMPORARY\b/i.test(s) || leadingKeyword(s) === 'SET');
+  function sessionParamsFor(tab, sqls) {
+    return tab.chSession != null || needsSession(sqls) ? sessionParams(tab) : {};
+  }
+
   async function run(opts) {
     if (app.state.running.value) return; // already running — cancel via cancel()/Esc
     const tab = app.activeTab();
-    if (!tab.sql.trim()) return;
+    // `opts.sql` overrides the source SQL (a single selected statement); otherwise
+    // the whole tab runs, byte-for-byte as before (FORMAT / EXPLAIN detection,
+    // trailing `;`, history).
+    const srcSql = opts && opts.sql != null ? opts.sql : tab.sql;
+    if (!srcSql.trim()) return;
     await ensureConfig();
     if (!(await getToken())) { chCtx.onSignedOut(); return; }
 
@@ -447,10 +494,10 @@ export function createApp(env = {}) {
     // An explicit FORMAT clause runs raw and shows ClickHouse's response verbatim
     // (single raw tab). Otherwise an EXPLAIN (typed, or forced by the button) gets
     // the five EXPLAIN views; everything else streams structured (Table).
-    const explicitFmt = detectSqlFormat(tab.sql);
-    const parsed = explicitFmt ? null : parseExplain(tab.sql);
+    const explicitFmt = detectSqlFormat(srcSql);
+    const parsed = explicitFmt ? null : parseExplain(srcSql);
     const explainMode = !explicitFmt && (parsed != null || app.state.forceExplain);
-    let runSql = tab.sql;
+    let runSql = srcSql;
     let fmt;
     let explainView = null;
     if (explainMode) {
@@ -463,9 +510,9 @@ export function createApp(env = {}) {
         || (parsed && detectExplainView(parsed))
         || 'explain';
       fmt = (EXPLAIN_VIEWS.find((v) => v.id === explainView) || EXPLAIN_VIEWS[0]).chFormat;
-      const inner = parsed ? parsed.inner : tab.sql;
+      const inner = parsed ? parsed.inner : srcSql;
       runSql = explainView === 'explain'
-        ? (parsed ? tab.sql : 'EXPLAIN ' + tab.sql)
+        ? (parsed ? srcSql : 'EXPLAIN ' + srcSql)
         : buildExplainQuery(inner, explainView);
     } else {
       fmt = explicitFmt || 'Table';
@@ -481,7 +528,7 @@ export function createApp(env = {}) {
     if (explainView) tab.result.explainView = explainView;
     app.state.resultSort = { col: null, dir: 'asc' };
     app.state.runT0 = t0;
-    app.state.runQueryId = cryptoObj.randomUUID ? cryptoObj.randomUUID() : 'q' + t0;
+    app.state.runQueryId = uid('q');
     app.state.abortController = new AbortController();
     app.state.runTick = setInterval(tickElapsed, 100);
     // Keep the current Table/JSON/Chart tab across re-runs (#34); a saved-query
@@ -502,6 +549,7 @@ export function createApp(env = {}) {
         resultRowLimit: rowLimit,
         queryId: app.state.runQueryId,
         signal: app.state.abortController.signal,
+        params: sessionParamsFor(tab, [srcSql]),
         onLine: (json) => applyStreamLine(json, tab.result),
         onChunk: () => renderResults(app),
       });
@@ -526,8 +574,128 @@ export function createApp(env = {}) {
       // render the final stats, so elapsed_ns must already be recorded. (Old
       // explicit setRunBtn(false)/renderResults are now those effects' job.)
       app.state.running.value = false;
-      if (!tab.result.error && !tab.result.cancelled) app.recordHistory(tab);
+      if (!tab.result.error && !tab.result.cancelled) app.recordHistory(tab, opts && opts.sql);
     }
+  }
+
+  // Run one script statement, classifying the outcome for the retry logic: a
+  // Cancel → { aborted }; a connection-level fetch failure → { error:'Network
+  // error', transient } (retryable); any other throw → { error }. Otherwise the
+  // runQuery result itself ({ raw } | { error }).
+  async function attemptStatement(stmt, opts) {
+    try {
+      return await ch.runQuery(chCtx, stmt, opts);
+    } catch (e) {
+      if (e.name === 'AbortError') return { aborted: true };
+      return { error: e instanceof TypeError ? 'Network error' : String((e && e.message) || e), transient: e instanceof TypeError };
+    }
+  }
+
+  // Run a `;`-separated script sequentially: one ClickHouse request per statement
+  // (CH's HTTP interface runs exactly one statement per request), stopping on the
+  // first failure. Row-returning statements (SELECT/WITH/SHOW/…) are fetched as
+  // JSONCompact capped at 100 rows; everything else runs for effect and reports
+  // OK. The result is a per-statement summary grid (tab.result.script). The whole
+  // script is recorded as one history entry on a clean run. `originalInput` is the
+  // exact text that was split (the selection or the whole editor).
+  async function runScript(statements, originalInput) {
+    if (app.state.running.value) return;
+    await ensureConfig();
+    if (!(await getToken())) { chCtx.onSignedOut(); return; }
+    app.state.forceExplain = false;
+    const tab = app.activeTab();
+    const t0 = now();
+    const entries = [];
+    tab.result = { script: entries };
+    app.state.resultSort = { col: null, dir: 'asc' };
+    app.state.runT0 = t0;
+    app.state.abortController = new AbortController();
+    app.state.runTick = setInterval(tickElapsed, 100);
+    let aborted = false;
+    // Attach a session only if the script needs one (TEMPORARY / SET) or the tab
+    // already has one — same params for every statement, computed once.
+    const sp = sessionParamsFor(tab, statements);
+    app.state.running.value = true; // the results effect paints the (empty) grid
+    try {
+      for (let i = 0; i < statements.length; i++) {
+        const stmt = statements[i];
+        const rowReturning = isRowReturning(stmt);
+        // Over-fetch SELECTs by one past the display cap so a truncated result is
+        // detectable (at exactly the cap it isn't).
+        const opts = {
+          format: rowReturning ? 'JSONCompact' : 'TSV',
+          signal: app.state.abortController.signal,
+          params: { ...sp, ...(rowReturning ? { max_result_rows: SELECT_ROW_CAP + 1, result_overflow_mode: 'break' } : {}) },
+        };
+        const s0 = now(); // this statement's own wall-clock (grid Time column)
+        // Fresh query_id per attempt, published before the request so Cancel
+        // issues KILL QUERY against the statement that's actually running.
+        app.state.runQueryId = uid('q');
+        let out = await attemptStatement(stmt, { ...opts, queryId: app.state.runQueryId });
+        // Retry ONLY when it's safe. SESSION_IS_LOCKED means the statement was
+        // rejected before running → safe to retry (any statement). A connection
+        // reset (fetch TypeError → "Network error") leaves it UNKNOWN whether the
+        // statement ran, so only retry read-only statements — re-running an
+        // INSERT/DDL could double-apply it. (A mid-retry Cancel aborts the retry.)
+        const locked = out.error != null && SESSION_BUSY.test(out.error);
+        if (!out.aborted && (locked || (out.transient && rowReturning))) {
+          await sleep(retryMs);
+          app.state.runQueryId = uid('q');
+          out = await attemptStatement(stmt, { ...opts, queryId: app.state.runQueryId });
+        }
+        if (out.aborted) { aborted = true; break; }
+        // A connection reset on a non-idempotent statement: don't silently retry —
+        // tell the user it may have run so they can decide whether to re-run.
+        if (out.transient && !rowReturning) out.error = 'Network error — the statement may have executed; re-run it manually if needed.';
+        const ms = now() - s0;
+        if (out.error != null) {
+          entries.push({ sql: stmt, status: 'error', error: out.error, ms });
+          renderResults(app);
+          break; // stop-on-first-failure: skip the remaining statements
+        }
+        if (rowReturning) {
+          const sel = parseSelectResult(out.raw, SELECT_ROW_CAP);
+          entries.push({ sql: stmt, status: 'rows', columns: sel.columns, rows: sel.rows, truncated: sel.truncated, preview: firstRowPreview(sel.rows), ms });
+        } else {
+          entries.push({ sql: stmt, status: 'ok', ms });
+        }
+        renderResults(app);
+      }
+    } finally {
+      clearInterval(app.state.runTick);
+      app.state.runTick = null;
+      app.state.abortController = null;
+      app.state.runQueryId = null;
+      app.state.runT0 = null;
+      tab.result.elapsedMs = now() - t0;
+      if (aborted) tab.result.cancelled = true;
+      app.state.running.value = false;
+      // One history entry for the whole script — but only on a clean run (mirrors
+      // run(): no history for an aborted or failed script).
+      if (!aborted && !entries.some((e) => e.status === 'error')) {
+        recordScriptHistory(app.state, originalInput, tab.result.elapsedMs, saveJSON);
+        if (app.state.sidePanel.value === 'history') renderSavedHistory(app);
+      }
+    }
+  }
+
+  // The Run button / ⌘+Enter entry point. A non-empty (non-whitespace) editor
+  // selection runs just that text; otherwise the whole tab. The chosen text is
+  // split: one statement keeps today's rich Table/Chart/EXPLAIN path (run());
+  // more than one runs sequentially as a script (runScript).
+  function runEntry(opts) {
+    if (app.state.running.value) return;
+    const ta = app.dom.editorTextarea;
+    const sel = ta ? ta.value.slice(ta.selectionStart, ta.selectionEnd) : '';
+    const hasSel = sel.trim() !== '';
+    const input = hasSel ? sel : app.activeTab().sql;
+    const statements = splitStatements(input);
+    if (!statements.length) return; // nothing runnable (empty / comments-only)
+    // >1 statement → script grid (a remembered single-result view doesn't apply).
+    if (statements.length > 1) return runScript(statements, input);
+    // 1 statement → today's rich path. Forward opts (e.g. a saved query's
+    // remembered view / Explain); a selection adds the sql override.
+    return run(hasSel ? { ...opts, sql: input } : opts);
   }
   // Stop an in-flight query: abort the stream and KILL QUERY on the server.
   function cancel() {
@@ -538,41 +706,80 @@ export function createApp(env = {}) {
   function setRunBtn(running) {
     if (!app.dom.runBtn) return;
     app.dom.runBtn.disabled = running;
-    // Build the children and drop the null (replaceChildren would otherwise
-    // coerce a null arg into a "null" text node → "Running…null").
+    // "Run selection" while the editor has a non-empty selection (so the mode is
+    // discoverable); plain "Run" otherwise. Build the children and drop the null
+    // (replaceChildren would coerce a null arg into a "null" text node).
+    const label = running ? 'Running…' : (app.state.hasSelection.value ? 'Run selection' : 'Run');
     app.dom.runBtn.replaceChildren(
-      ...[Icon.play(), h('span', null, running ? 'Running…' : 'Run'),
+      ...[Icon.play(), h('span', null, label),
         running ? null : h('kbd', null, '⌘↵')].filter(Boolean));
   }
   app.setRunBtn = setRunBtn;
+  // Busy state for the Format button — formatting a multi-statement script is one
+  // request per statement, so it can take a moment; show a spinner + disable.
+  function setFmtBtn(busy) {
+    if (!app.dom.fmtBtn) return;
+    app.dom.fmtBtn.disabled = busy;
+    app.dom.fmtBtn.replaceChildren(
+      busy ? h('span', { class: 'spin' }, Icon.spinner()) : Icon.braces(),
+      busy ? 'Formatting…' : 'Format');
+  }
+  app.setFmtBtn = setFmtBtn;
 
   // Pretty-print the editor's SQL via ClickHouse's formatQuery(), in place. The
   // raw (untrimmed) SQL is sent so a syntax error's reported position maps 1:1
   // onto the editor text. On error we show it persistently in the results panel
   // and jump the caret to the offending token; a later successful format clears
   // that error. Success never touches real run results.
+  // Clear a prior format-error result (a later successful format clears just this).
+  function clearFormatError() {
+    const tab = app.activeTab();
+    if (tab.result && tab.result.formatError) { tab.result = null; renderResults(app); }
+  }
+  // Format one statement via ClickHouse's formatQuery(); returns the formatted text.
+  const formatOne = async (s) => {
+    const json = await ch.queryJson(chCtx, 'SELECT formatQuery(' + sqlString(s) + ') AS q FORMAT JSON');
+    return (json.data && json.data[0] && json.data[0].q) || '';
+  };
+
   async function formatQuery() {
     const raw = app.activeTab().sql || '';
     if (!raw.trim()) return;
     await ensureConfig();
     if (!(await getToken())) { chCtx.onSignedOut(); return; }
     const tab = app.activeTab();
+    const stmts = splitStatements(raw);
+    setFmtBtn(true); // formatting a script is one request per statement — show busy
     try {
-      const json = await ch.queryJson(chCtx, 'SELECT formatQuery(' + sqlString(raw) + ') AS q FORMAT JSON');
-      const q = (json.data && json.data[0] && json.data[0].q) || '';
-      // Terminate so the caret lands past the last token — otherwise the input
-      // event from the replace re-opens autocomplete on the trailing word.
-      if (q) replaceEditor(app, withStatementBreak(q));
-      if (tab.result && tab.result.formatError) { tab.result = null; renderResults(app); } // clear a prior format error
-    } catch (e) {
-      const msg = String((e && e.message) || e);
-      tab.result = newResult('Table');
-      tab.result.error = msg;
-      tab.result.formatError = true; // a format error, not a run result (so success can clear just this)
-      app.state.resultView.value = 'table';
-      renderResults(app); // explicit: the format-error tab.result is an in-place write, and resultView may already be 'table' (no effect)
-      const pos = parseErrorPos(msg);
-      if (pos != null) app.dom.editorRevealCaret(pos);
+      if (stmts.length > 1) {
+        // Multi-statement: format each (best-effort — keep the original text for any
+        // statement that won't format, like insertCreate), then reassemble with a
+        // `;` and a blank line between statements.
+        const formatted = await Promise.all(stmts.map((s) => formatOne(s).catch(() => s)));
+        replaceEditor(app, withStatementBreak(formatted.map((q, i) => q || stmts[i]).join(';\n\n')));
+        clearFormatError();
+        return;
+      }
+      // Single statement: send the raw (untrimmed) SQL so a syntax error's reported
+      // position maps 1:1 onto the editor text; show it persistently + jump the caret.
+      try {
+        const q = await formatOne(raw);
+        // Terminate so the caret lands past the last token — otherwise the input
+        // event from the replace re-opens autocomplete on the trailing word.
+        if (q) replaceEditor(app, withStatementBreak(q));
+        clearFormatError();
+      } catch (e) {
+        const msg = String((e && e.message) || e);
+        tab.result = newResult('Table');
+        tab.result.error = msg;
+        tab.result.formatError = true; // a format error, not a run result (so success can clear just this)
+        app.state.resultView.value = 'table';
+        renderResults(app); // explicit: the format-error tab.result is an in-place write, and resultView may already be 'table' (no effect)
+        const pos = parseErrorPos(msg);
+        if (pos != null) app.dom.editorRevealCaret(pos);
+      }
+    } finally {
+      setFmtBtn(false);
     }
   }
 
@@ -653,11 +860,19 @@ export function createApp(env = {}) {
     openDetailPane(app, node, detail, targetDoc);
   }
 
+  // EXPLAIN wraps the whole editor as a single statement, so it can't run against a
+  // `;`-separated script (ClickHouse would reject `EXPLAIN a; b; …` with a confusing
+  // parse error). Say so with our own message instead.
+  function explainMultiBlocked() {
+    if (splitStatements(app.activeTab().sql).length <= 1) return false;
+    flashToast('Explain isn’t available for a multi-statement script — run one statement at a time.', { document: doc });
+    return true;
+  }
   // Explain the current query without editing it: run it through the EXPLAIN
   // views (the editor SQL is left untouched; run() wraps it as needed).
-  function explainQuery() { return run({ explain: true }); }
+  function explainQuery() { return explainMultiBlocked() ? undefined : run({ explain: true }); }
   // Switch the active EXPLAIN view (re-runs the derived query, keeps the mode).
-  function setExplainView(id) { return run({ explainView: id }); }
+  function setExplainView(id) { return explainMultiBlocked() ? undefined : run({ explainView: id }); }
   // Change the global result-row cap: persist the (normalized) preference and
   // re-run the current query so a raise genuinely fetches more (server-side cap),
   // a lower one stops sooner. run() no-ops on an empty editor, so changing the
@@ -691,8 +906,8 @@ export function createApp(env = {}) {
   }
 
   // --- saved / history bridges ------------------------------------------
-  app.recordHistory = (tab) => {
-    recordHistory(app.state, tab, saveJSON);
+  app.recordHistory = (tab, sqlText) => {
+    recordHistory(app.state, tab, saveJSON, undefined, sqlText);
     if (app.state.sidePanel.value === 'history') renderSavedHistory(app);
   };
 
@@ -716,7 +931,8 @@ export function createApp(env = {}) {
   // A result is exportable once it has raw text or at least one row.
   function exportableResult() {
     const r = app.activeTab().result;
-    return r && !r.error && (r.rawText != null || r.rows.length > 0) ? r : null;
+    // A script result is a per-statement grid, not a single exportable table.
+    return r && !r.error && !r.script && (r.rawText != null || r.rows.length > 0) ? r : null;
   }
   function copyResult() {
     const r = exportableResult();
@@ -862,7 +1078,7 @@ export function createApp(env = {}) {
 
   // --- actions registry --------------------------------------------------
   app.actions = {
-    run,
+    run: runEntry,
     cancel,
     newTab: () => newTab(app),
     selectTab: (id) => selectTab(app, id),
@@ -1012,8 +1228,20 @@ export function renderApp(app, helpers) {
     app.state.running.value;
     renderResults(app);
   });
-  // The Run button reflects the run state (label + disabled).
-  effect(() => app.setRunBtn(app.state.running.value));
+  // The Run button reflects the run state (label + disabled) and the selection
+  // (Run ↔ Run selection).
+  effect(() => { app.state.hasSelection.value; app.setRunBtn(app.state.running.value); });
+  // Track the editor's text selection into a signal so the Run button label and
+  // ⌘+Enter target just the highlighted text. `selectionchange` is the one event
+  // that fires for keyboard, mouse, and programmatic selection; gate on the
+  // editor being focused so selecting elsewhere (results, address bar) is ignored.
+  app.syncSelection = () => {
+    const ta = app.dom.editorTextarea;
+    const focused = ta && (app.document || document).activeElement === ta;
+    const sel = focused ? ta.value.slice(ta.selectionStart, ta.selectionEnd) : '';
+    app.state.hasSelection.value = sel.trim() !== '';
+  };
+  (app.document || document).addEventListener('selectionchange', app.syncSelection);
   // Reactive repaint of the schema tree — replaces the scattered renderSchema()
   // calls: re-runs on schema load, load error, filter text, or expand/collapse.
   // Registered here (post-mount) so app.dom.schemaList already exists; the effect

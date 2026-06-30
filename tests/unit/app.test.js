@@ -56,6 +56,7 @@ function env(over = {}) {
     Dagre: dagre,
     fetch: makeFetch([]),
     now: () => 0,
+    retryMs: 0, // instant script-statement retry in tests (no real 250ms wait)
     navigator: { clipboard: { writeText: vi.fn(async () => {}) } },
     ...over,
   };
@@ -311,6 +312,21 @@ describe('query run', () => {
     await app.actions.run();
     expect(app.activeTab().result.rows).toEqual([['1']]);
     expect(app.state.history.length).toBe(1);
+    // a plain SELECT needs no session, so none is opened (avoids the session race)
+    expect(app.chCtx.fetch.mock.calls.map((c) => c[0]).some((u) => /session_id=/.test(u))).toBe(false);
+  });
+  it('opens a ClickHouse session only for SQL that needs one (SET / TEMPORARY), and it sticks to the tab', async () => {
+    const { app } = appForRun([[() => true, resp({ body: streamBody(['{"row":{}}\n']) })]]);
+    app.activeTab().sql = 'SET max_threads = 1';
+    await app.actions.run(); // SET → opens a session
+    const setUrl = app.chCtx.fetch.mock.calls.map((c) => c[0]).find((u) => /session_id=/.test(u));
+    expect(setUrl).not.toMatch(/session_timeout/); // rely on the server default (60s) — see sessionParams
+    const sid = /session_id=([^&]+)/.exec(setUrl)[1];
+    app.chCtx.fetch.mockClear();
+    app.activeTab().sql = 'SELECT 1'; // plain SELECT now, but the tab already has a session
+    await app.actions.run();
+    const selUrl = app.chCtx.fetch.mock.calls.map((c) => c[0]).find((u) => /session_id=/.test(u));
+    expect(/session_id=([^&]+)/.exec(selUrl)[1]).toBe(sid); // sticky: same session id
   });
   it('keeps the current result view on a plain re-run, and restores a remembered view when opened (#34)', async () => {
     const routes = [[(u, sql) => /SELECT 1/.test(sql), resp({ body: streamBody(['{"meta":[{"name":"a","type":"UInt8"}]}\n', '{"row":{"a":"1"}}\n']) })]];
@@ -457,6 +473,21 @@ describe('query run', () => {
     expect(app.activeTab().result.explainView).toBe('explain');
     expect(sentExplains(e)).toContain('EXPLAIN SELECT 1');
   });
+  it('Explain on a multi-statement script shows a message and sends no EXPLAIN', async () => {
+    const { app, e } = appForRun([[(u, sql) => /EXPLAIN/.test(sql), resp({ text: 'plan' })]]);
+    app.activeTab().sql = 'SELECT 1; SELECT 2';
+    await app.actions.explainQuery();
+    expect(document.querySelector('.share-toast').textContent).toMatch(/multi-statement/);
+    expect(sentExplains(e)).toHaveLength(0); // nothing sent to ClickHouse
+    expect(app.activeTab().result).toBeNull();
+  });
+  it('setExplainView on a multi-statement script is also blocked', async () => {
+    const { app, e } = appForRun([[(u, sql) => /EXPLAIN/.test(sql), resp({ text: 'plan' })]]);
+    app.activeTab().sql = 'SELECT 1; SELECT 2';
+    await app.actions.setExplainView('pipeline');
+    expect(document.querySelector('.share-toast').textContent).toMatch(/multi-statement/);
+    expect(sentExplains(e)).toHaveLength(0);
+  });
   it('runs ESTIMATE as a structured table (streaming), not raw', async () => {
     const { app } = appForRun([
       [(u, sql) => /ESTIMATE/.test(sql), resp({ body: streamBody(['{"meta":[{"name":"rows","type":"UInt64"}]}\n', '{"row":{"rows":"42"}}\n']) })],
@@ -475,6 +506,238 @@ describe('query run', () => {
     await app.actions.run();
     expect(app.activeTab().result.rawFormat).toBe('JSON'); // FORMAT clause, not the EXPLAIN default
   });
+
+  // ── multiquery / run-selection (#83) ──────────────────────────────────────
+  const SCRIPT = 'CREATE TABLE t (a Int8); INSERT INTO t VALUES (1); SELECT count() AS c FROM t';
+  const scriptRoutes = () => [
+    [(u, sql) => /CREATE TABLE t/.test(sql), resp({ text: '' })],
+    [(u, sql) => /INSERT INTO t/.test(sql), resp({ text: '' })],
+    [(u, sql) => /SELECT count/.test(sql), resp({ text: JSON.stringify({ meta: [{ name: 'c', type: 'UInt64' }], data: [['1']] }) })],
+  ];
+
+  it('runs a ;-separated script sequentially, one summary row per statement, and records one history entry', async () => {
+    const { app } = appForRun(scriptRoutes());
+    app.state.sidePanel.value = 'history'; // exercise the history repaint in the finally
+    app.activeTab().sql = SCRIPT;
+    await app.actions.run();
+    const script = app.activeTab().result.script;
+    expect(script.map((e) => e.status)).toEqual(['ok', 'ok', 'rows']);
+    expect(script[2]).toMatchObject({ preview: '1', columns: [{ name: 'c', type: 'UInt64' }], rows: [['1']] });
+    expect(script.every((e) => typeof e.ms === 'number')).toBe(true); // per-statement time recorded
+    expect(app.state.history).toHaveLength(1);
+    expect(app.state.history[0].sql).toBe(SCRIPT);
+    // SELECT statements are sent with the JSONCompact + row-cap params
+    // (over-fetched by one past the display cap to detect truncation).
+    const urls = app.chCtx.fetch.mock.calls.map((c) => c[0]);
+    const selUrl = urls.find((u) => /max_result_rows=101/.test(u));
+    expect(selUrl).toMatch(/result_overflow_mode=break/);
+    // this script needs no session (permanent table) → session-less (no race)
+    expect(urls.some((u) => /session_id=/.test(u))).toBe(false);
+  });
+
+  it('a script with CREATE TEMPORARY / SET shares one session across all its statements', async () => {
+    const { app } = appForRun([
+      [(u, sql) => /TEMPORARY/.test(sql), resp({ text: '' })],
+      [(u, sql) => /INSERT INTO t/.test(sql), resp({ text: '' })],
+      [(u, sql) => /SELECT \* FROM t/.test(sql), resp({ text: JSON.stringify({ meta: [{ name: 'a', type: 'Int8' }], data: [['1']] }) })],
+    ]);
+    app.activeTab().sql = 'CREATE TEMPORARY TABLE t (a Int8); INSERT INTO t VALUES (1); SELECT * FROM t';
+    await app.actions.run();
+    const sids = app.chCtx.fetch.mock.calls.map((c) => c[0]).filter((u) => /session_id=/.test(u)).map((u) => /session_id=([^&]+)/.exec(u)[1]);
+    expect(sids).toHaveLength(3); // all three statements carry the session
+    expect(new Set(sids).size).toBe(1); // and it's the same one (temp table persists)
+  });
+
+  it('flags a SELECT as truncated when more than the cap rows come back', async () => {
+    const data = Array.from({ length: 101 }, (_, i) => [String(i)]);
+    const { app } = appForRun([
+      [(u, sql) => /SELECT/.test(sql), resp({ text: JSON.stringify({ meta: [{ name: 'n', type: 'Int' }], data }) })],
+    ]);
+    app.activeTab().sql = 'SELECT 1; SELECT 2'; // two statements → script mode
+    await app.actions.run();
+    const last = app.activeTab().result.script[1];
+    expect(last.rows).toHaveLength(100); // displayed cap
+    expect(last.truncated).toBe(true);
+  });
+
+  it('a comment-only selection is a no-op (nothing is sent)', async () => {
+    const { app } = appForRun([]);
+    const ta = app.dom.editorTextarea;
+    ta.value = '-- just a note';
+    ta.selectionStart = 0; ta.selectionEnd = ta.value.length;
+    app.activeTab().sql = 'SELECT 1';
+    await app.actions.run();
+    expect(app.activeTab().result).toBeNull(); // no run started
+    // the comment text was never POSTed to ClickHouse
+    expect(app.chCtx.fetch.mock.calls.some((c) => /just a note/.test(c[1] && c[1].body))).toBe(false);
+  });
+
+  it('copy/export treat a script result as non-exportable (no throw)', async () => {
+    const { app } = appForRun(scriptRoutes());
+    app.activeTab().sql = SCRIPT;
+    await app.actions.run();
+    expect(app.activeTab().result.script).toHaveLength(3);
+    expect(() => app.actions.copyResult()).not.toThrow();
+    expect(() => app.actions.exportResult()).not.toThrow();
+  });
+
+  it('stops on the first failing statement and skips the rest (no history)', async () => {
+    const { app } = appForRun([
+      [(u, sql) => /CREATE TABLE t/.test(sql), resp({ text: '' })],
+      [(u, sql) => /INSERT INTO t/.test(sql), resp({ ok: false, status: 500, text: 'DB::Exception: boom' })],
+    ]);
+    app.activeTab().sql = SCRIPT;
+    await app.actions.run();
+    const script = app.activeTab().result.script;
+    expect(script).toHaveLength(2); // CREATE ok, INSERT error; SELECT never run
+    expect(script[1]).toMatchObject({ status: 'error' });
+    expect(script[1].error).toMatch(/boom/);
+    expect(app.state.history).toHaveLength(0);
+  });
+
+  it('reports a connection reset (TypeError) on a non-idempotent statement without retrying it', async () => {
+    const { app } = appForRun([
+      [(u, sql) => /CREATE TABLE t/.test(sql), () => { throw new TypeError('fetch failed'); }],
+    ]);
+    app.activeTab().sql = SCRIPT;
+    await app.actions.run();
+    expect(app.activeTab().result.script[0]).toMatchObject({ status: 'error' });
+    expect(app.activeTab().result.script[0].error).toMatch(/may have executed/);
+  });
+
+  it('surfaces a non-abort thrown error message per statement', async () => {
+    const { app } = appForRun([
+      [(u, sql) => /CREATE TABLE t/.test(sql), () => { throw new Error('kaput'); }],
+    ]);
+    app.activeTab().sql = SCRIPT;
+    await app.actions.run();
+    expect(app.activeTab().result.script[0]).toMatchObject({ status: 'error', error: 'kaput' });
+  });
+
+  it('aborts mid-script: marks the result cancelled and records no history', async () => {
+    const { app } = appForRun([
+      [(u, sql) => /CREATE TABLE t/.test(sql), resp({ text: '' })],
+      [(u, sql) => /INSERT INTO t/.test(sql), () => { const e = new Error('aborted'); e.name = 'AbortError'; throw e; }],
+    ]);
+    app.activeTab().sql = SCRIPT;
+    await app.actions.run();
+    expect(app.activeTab().result.cancelled).toBe(true);
+    expect(app.activeTab().result.script).toHaveLength(1); // CREATE ran; INSERT aborted before pushing
+    expect(app.state.history).toHaveLength(0);
+  });
+
+  it('retries a READ-ONLY statement once on a transient connection reset (Network error → success)', async () => {
+    let sel = 0;
+    const { app } = appForRun([
+      [(u, sql) => /CREATE TABLE t/.test(sql), resp({ text: '' })],
+      [(u, sql) => /INSERT INTO t/.test(sql), resp({ text: '' })],
+      // the SELECT (idempotent) resets once, then the retry succeeds
+      [(u, sql) => /SELECT count/.test(sql), () => { if (sel++ === 0) throw new TypeError('Failed to fetch'); return resp({ text: JSON.stringify({ meta: [{ name: 'c', type: 'UInt64' }], data: [['1']] }) }); }],
+    ]);
+    app.activeTab().sql = SCRIPT;
+    await app.actions.run();
+    expect(sel).toBe(2); // retried the SELECT
+    expect(app.activeTab().result.script.map((e) => e.status)).toEqual(['ok', 'ok', 'rows']); // recovered
+  });
+
+  it('does NOT retry a non-idempotent statement on a connection reset (surfaces "may have executed")', async () => {
+    let inserts = 0;
+    const { app } = appForRun([
+      [(u, sql) => /CREATE TABLE t/.test(sql), resp({ text: '' })],
+      [(u, sql) => /INSERT INTO t/.test(sql), () => { inserts++; throw new TypeError('Failed to fetch'); }],
+    ]);
+    app.activeTab().sql = SCRIPT;
+    await app.actions.run();
+    expect(inserts).toBe(1); // the INSERT is NOT re-sent — it may have run server-side
+    expect(app.activeTab().result.script[1]).toMatchObject({ status: 'error' });
+    expect(app.activeTab().result.script[1].error).toMatch(/may have executed/);
+  });
+
+  it('retries a statement once when the ClickHouse session is briefly locked', async () => {
+    let n = 0;
+    const locked = '{"exception":"Code: 373. DB::Exception: Session abc is locked by a concurrent client. (SESSION_IS_LOCKED)"}';
+    const { app } = appForRun([
+      [(u, sql) => /CREATE TABLE t/.test(sql), () => (n++ === 0 ? resp({ ok: false, status: 500, text: locked }) : resp({ text: '' }))],
+      [(u, sql) => /INSERT INTO t/.test(sql), resp({ text: '' })],
+      [(u, sql) => /SELECT count/.test(sql), resp({ text: JSON.stringify({ meta: [{ name: 'c', type: 'UInt64' }], data: [['1']] }) })],
+    ]);
+    app.activeTab().sql = SCRIPT;
+    await app.actions.run();
+    expect(n).toBe(2); // retried past the transient lock
+    expect(app.activeTab().result.script[0].status).toBe('ok');
+  });
+
+  it('does not retry a genuine query error (stops on the first failure)', async () => {
+    let inserts = 0;
+    const { app } = appForRun([
+      [(u, sql) => /CREATE TABLE t/.test(sql), resp({ text: '' })],
+      [(u, sql) => /INSERT INTO t/.test(sql), () => { inserts++; return resp({ ok: false, status: 400, text: '{"exception":"DB::Exception: bad value"}' }); }],
+    ]);
+    app.activeTab().sql = SCRIPT;
+    await app.actions.run();
+    expect(inserts).toBe(1); // no retry for a non-transient error
+    expect(app.activeTab().result.script[1]).toMatchObject({ status: 'error' });
+  });
+
+  it('session_id falls back to a unique non-UUID id without crypto.randomUUID', async () => {
+    const noUuid = { getRandomValues: (a) => webcrypto.getRandomValues(a) }; // non-secure context: no randomUUID
+    const { app } = appForRun([[() => true, resp({ body: streamBody(['{"row":{}}\n']) })]], { crypto: noUuid });
+    app.activeTab().sql = 'SET max_threads = 1'; // SET opens a session, so a session_id is sent
+    await app.actions.run();
+    const url = app.chCtx.fetch.mock.calls.map((c) => c[0]).find((u) => /session_id=/.test(u));
+    expect(decodeURIComponent(/session_id=([^&]+)/.exec(url)[1])).toMatch(/^sess-/); // collision-resistant fallback
+  });
+
+  it('run-selection: a non-empty selection runs only the selected statement (rich path) and records that text', async () => {
+    const { app } = appForRun([
+      [(u, sql) => /SELECT 1/.test(sql), resp({ body: streamBody(['{"meta":[{"name":"a","type":"UInt8"}]}\n', '{"row":{"a":"1"}}\n']) })],
+    ]);
+    const ta = app.dom.editorTextarea;
+    ta.value = 'SELECT 1; SELECT 2';
+    ta.selectionStart = 0; ta.selectionEnd = 8; // "SELECT 1"
+    app.activeTab().sql = ta.value;
+    await app.actions.run();
+    expect(app.activeTab().result.rows).toEqual([['1']]); // single-statement rich path, not the script grid
+    expect(app.activeTab().result.script).toBeUndefined();
+    expect(app.state.history[0].sql).toBe('SELECT 1'); // the selection, not the whole editor
+  });
+
+  it('runEntry while already running is a no-op', async () => {
+    const { app } = appForRun([]);
+    app.state.running.value = true;
+    app.activeTab().sql = SCRIPT;
+    await app.actions.run();
+    expect(app.activeTab().result).toBeNull();
+  });
+
+  it('a signed-out script run hits onSignedOut and produces no result', async () => {
+    const app = createApp(env({ sessionStorage: memSession({}) }));
+    app.renderApp();
+    app.activeTab().sql = SCRIPT;
+    await app.actions.run();
+    expect(app.activeTab().result).toBeNull(); // returns before building the grid
+  });
+
+  it('syncSelection drives hasSelection; setRunBtn flips to "Run selection"', () => {
+    const { app } = appForRun([]);
+    const ta = app.dom.editorTextarea;
+    ta.value = 'SELECT 1; SELECT 2';
+    ta.focus();
+    ta.selectionStart = 0; ta.selectionEnd = 8;
+    app.syncSelection();
+    expect(app.state.hasSelection.value).toBe(true);
+    app.setRunBtn(false);
+    expect(app.dom.runBtn.textContent).toContain('Run selection');
+    // collapsed selection → false; missing textarea → false
+    ta.selectionEnd = 0;
+    app.syncSelection();
+    expect(app.state.hasSelection.value).toBe(false);
+    app.dom.editorTextarea = null;
+    app.syncSelection();
+    expect(app.state.hasSelection.value).toBe(false);
+  });
+
+  // ── result-row cap (#86) ──────────────────────────────────────────────────
   const runUrl = (e, re) => e.fetch.mock.calls.findLast((c) => re.test((c[1] && c[1].body) || ''))[0];
   it('caps a normal SELECT server-side and trims block-boundary overage (flagging capped)', async () => {
     const { app, e } = appForRun([
@@ -573,6 +836,48 @@ describe('formatQuery', () => {
     await app.actions.formatQuery();
     expect(app.root.querySelector('.results-error')).toBeNull(); // error cleared
     expect(app.activeTab().result).toBeNull();
+  });
+  it('formats a multi-statement script one statement at a time, joined by ;<blank>', async () => {
+    const { app } = appFor([
+      [(u, sql) => /create table/.test(sql), resp({ json: { data: [{ q: 'CREATE TABLE t\n(\n    a Int8\n)' }] } })],
+      [(u, sql) => /count/.test(sql), resp({ json: { data: [{ q: 'SELECT count()\nFROM t' }] } })],
+    ]);
+    app.activeTab().sql = 'create table t (a Int8); select count() from t';
+    await app.actions.formatQuery();
+    expect(app.dom.editorTextarea.value).toBe('CREATE TABLE t\n(\n    a Int8\n);\n\nSELECT count()\nFROM t\n');
+  });
+  it('multi-statement format is best-effort: an unformattable statement keeps its original text', async () => {
+    const { app } = appFor([
+      [(u, sql) => /create table/.test(sql), resp({ json: { data: [{ q: 'CREATE TABLE t (a Int8)' }] } })],
+      [(u, sql) => /bad syntax/.test(sql), resp({ ok: false, status: 500, text: '{"exception":"Syntax error"}' })],
+    ]);
+    app.activeTab().sql = 'create table t (a Int8); bad syntax here';
+    await app.actions.formatQuery();
+    expect(app.dom.editorTextarea.value).toContain('bad syntax here'); // original kept
+    expect(app.root.querySelector('.results-error')).toBeNull(); // no scary error for the script
+  });
+  it('a multi-statement format clears a prior single-statement format error', async () => {
+    const { app } = appFor([
+      [(u, sql) => /BEWEEN/.test(sql), resp({ ok: false, status: 500, text: '{"exception":"Syntax error: failed at position 8 (BEWEEN): x"}' })],
+      [(u, sql) => /formatQuery/.test(sql), resp({ json: { data: [{ q: 'SELECT 1' }] } })],
+    ]);
+    app.activeTab().sql = 'select x BEWEEN 2';
+    await app.actions.formatQuery();
+    expect(app.root.querySelector('.results-error')).not.toBeNull();
+    app.activeTab().sql = 'select 1; select 2'; // now a script
+    await app.actions.formatQuery();
+    expect(app.root.querySelector('.results-error')).toBeNull();
+  });
+  it('setFmtBtn toggles a busy/spinner state and no-ops without the button', () => {
+    const { app } = appFor([]);
+    app.setFmtBtn(true);
+    expect(app.dom.fmtBtn.disabled).toBe(true);
+    expect(app.dom.fmtBtn.textContent).toContain('Formatting…');
+    app.setFmtBtn(false);
+    expect(app.dom.fmtBtn.disabled).toBe(false);
+    expect(app.dom.fmtBtn.textContent).toBe('Format');
+    const noRender = createApp(env()); // no renderApp → no fmtBtn
+    expect(() => noRender.setFmtBtn(true)).not.toThrow();
   });
 });
 
