@@ -66,6 +66,7 @@ def _find_spa():
 
 SPA = _find_spa()
 PORT = int(os.environ.get("PORT", "8900"))
+HOST = os.environ.get("HOST", "127.0.0.1")
 CH_DIR = os.path.expanduser("~/.clickhouse-client")
 
 
@@ -282,7 +283,7 @@ def main():
     width = max((len(h["label"]) for h in hosts), default=0)
     lines = ["",
              "  Altinity SQL Browser - local static server",
-             f"  ▸ open    http://localhost:{PORT}/sql",
+             f"  ▸ open    http://{HOST if HOST != '0.0.0.0' else 'localhost'}:{PORT}/sql",
              f"  ▸ connections from {srcs}:" if hosts else "  ▸ no connections found"]
     for h, (chosen, detail) in zip(hosts, results):
         if chosen:
@@ -297,7 +298,7 @@ def main():
     print("\n".join(lines), flush=True)  # flush: serve_forever() never returns to flush for us
 
     try:
-        ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
+        ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()
     except KeyboardInterrupt:
         pass
 
