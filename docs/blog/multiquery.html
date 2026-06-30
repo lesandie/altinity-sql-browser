@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Run a whole SQL script, statement by statement — Altinity SQL Browser</title>
+<meta name="description" content="ClickHouse's HTTP interface runs one statement per request, so most browser consoles make you run a script a line at a time. The SQL Browser splits a ;-separated script client-side and runs each statement in order — with run-selection, sessions for temp tables, and a per-statement grid.">
+<link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../assets/site.css">
+</head>
+<body>
+
+<header class="site">
+  <nav class="wrap nav">
+    <a class="brand" href="../index.html"><img src="../assets/logo.svg" alt=""><span>Altinity SQL Browser</span></a>
+    <button class="nav-toggle" aria-label="Menu">☰</button>
+    <div class="nav-links">
+      <a href="../features.html">Features</a>
+      <a href="../deployment.html">Deployment</a>
+      <a href="../local-app.html">Local app</a>
+      <a href="index.html">Blog</a>
+      <a href="https://antalya.demo.altinity.cloud/sql">Live demo ↗</a>
+      <a class="cta" href="https://github.com/Altinity/altinity-sql-browser">GitHub</a>
+    </div>
+  </nav>
+</header>
+
+<article class="wrap post">
+  <div class="kicker">Editor</div>
+  <h1>Run a whole SQL script, statement by statement</h1>
+  <div class="post-meta"><span>Altinity engineering</span><span class="dot">·</span><span>June 2026</span><span class="dot">·</span><span>4 min read</span></div>
+  <p class="post-lede">ClickHouse's HTTP interface runs one statement per request — so most browser consoles make you run a script a line at a time. This one doesn't.</p>
+
+  <div class="body">
+    <p>There's a small daily friction with web consoles for ClickHouse. You have a setup script — create a
+      temporary table, load a few rows, run the SELECT you're actually testing, drop the table — and the
+      console rejects it, because ClickHouse's HTTP endpoint runs exactly one statement per request. So you
+      run them one at a time, copy-pasting, losing your place. <code class="k">clickhouse-client</code>
+      handles this with <code class="k">--multiquery</code>; the browser didn't.</p>
+
+    <p>Now it does. Paste a <code class="k">;</code>-separated script, hit Run, and each statement runs in
+      order — one request apiece, stopping at the first error — with a per-statement grid of what happened.</p>
+
+    <figure class="post-figure">
+      <div class="shot zoom"><img src="../assets/img/multiquery-dark.png" alt="A six-statement script and the per-statement result grid: a SELECT preview, OK for CREATE TEMPORARY TABLE and INSERT, a 3-row SELECT, OK for DROP, and a final SELECT — each with its own time." loading="lazy"></div>
+      <figcaption>Six statements, one Run. The temp table created in statement&nbsp;2 is still there in statement&nbsp;4 — then dropped in&nbsp;5.</figcaption>
+    </figure>
+
+    <h2>One request per statement, split where it's safe</h2>
+    <p>The split is lexical and client-side: it breaks on top-level <code class="k">;</code> and skips the
+      ones inside <code class="k">'…'</code> strings, <code class="k">`…`</code> identifiers, and
+      <code class="k">--</code> / <code class="k">#</code> / <code class="k">/* */</code> comments — so a
+      semicolon in a string or a comment doesn't cut a statement in half. Each piece is POSTed in turn, the
+      same model <code class="k">clickhouse-client --multiquery</code> uses. The first error stops the run
+      and lands on its row; the statements before it already happened (that's how SQL works), the ones after
+      don't.</p>
+
+    <p>The grid has three columns: the statement, its result, and its time. A row-returning statement —
+      <code class="k">SELECT</code>, <code class="k">SHOW</code>, <code class="k">WITH</code>,
+      <code class="k">EXPLAIN</code> — shows a one-line preview of the first row; click it for the full table
+      (capped at 100 rows in script mode). Everything else — <code class="k">CREATE</code>,
+      <code class="k">INSERT</code>, <code class="k">ALTER</code>, <code class="k">DROP</code> — runs for
+      effect and reports <strong>OK</strong>. The slow step is obvious at a glance.</p>
+
+    <h2>It keeps a session when the script needs one</h2>
+    <p>The interesting case is state that has to survive between statements. A
+      <code class="k">CREATE TEMPORARY TABLE</code> in statement 2 is useless if statement 4 can't see it.
+      ClickHouse scopes temporary tables and <code class="k">SET</code> to a session, so the runner attaches
+      one — but only when the script actually needs it (a <code class="k">TEMPORARY</code> or a
+      <code class="k">SET</code> in the mix); otherwise statements run session-less. The screenshot above is
+      the proof: create temp table <code class="k">X</code>, insert three rows, select them back (3 rows),
+      drop it — as one unit.</p>
+
+    <h2>Run just the part you mean</h2>
+    <p>The other half is run-selection. Highlight some text in the editor and the Run button becomes
+      <strong>Run selection</strong> — only the selected statements run. It's how I step through a
+      migration: select the first block, run it, read the grid, select the next. No commenting-out, no
+      scratch tab. With nothing selected, Run takes the whole editor.</p>
+
+    <p>A couple of details worth knowing: Cancel kills the statement that's actually running (a fresh
+      query id per statement, then <code class="k">KILL QUERY</code>), not just the stream; and a clean run
+      lands as a single history entry, so re-running the whole script is one click. One honest limitation —
+      an <code class="k">INSERT … FORMAT CSV</code> with inline data that contains a <code class="k">;</code>
+      will mis-split, because the splitter can't tell where the inline payload ends. Run those on their own.</p>
+
+    <p>Paste your setup-and-test script into the <a href="https://antalya.demo.altinity.cloud/sql">live demo</a>,
+      or select one statement and run just that — same console, no <code class="k">clickhouse-client</code>
+      round-trip.</p>
+  </div>
+
+  <div class="post-foot">
+    More from the blog:
+    <div class="post-nav">
+      <a href="explain-pipeline-graph.html">Read your query plan as a graph →</a>
+      <a href="query-library.html">A query library you can commit →</a>
+      <a href="no-backend-sql-console.html">The SQL console with no backend →</a>
+    </div>
+  </div>
+</article>
+
+<footer class="site">
+  <div class="wrap">
+    <div>© Altinity, Inc. · Apache-2.0 licensed</div>
+    <div class="fnav">
+      <a href="../index.html">Home</a>
+      <a href="../features.html">Features</a>
+      <a href="index.html">Blog</a>
+      <a href="https://github.com/Altinity/altinity-sql-browser">GitHub ↗</a>
+    </div>
+  </div>
+</footer>
+
+<script src="../assets/site.js"></script>
+</body>
+</html>

@@ -103,6 +103,29 @@
   </div>
 </section>
 
+<!-- Multiquery -->
+<section id="multiquery" style="border-top:1px solid var(--border);">
+  <div class="wrap">
+    <div class="feature-row">
+      <div class="txt">
+        <div class="eyebrow">Scripts</div>
+        <h3>Run a whole script, not one statement at a time</h3>
+        <p>ClickHouse's HTTP interface runs exactly one statement per request. The browser splits a
+          <code class="k">;</code>-separated script client-side and runs each statement in order — like
+          <code class="k">clickhouse-client --multiquery</code> — stopping on the first error. You get a
+          per-statement grid: each row's result and its own time.</p>
+        <ul>
+          <li><strong>Run a selection</strong> — highlight part of the editor and only that runs</li>
+          <li>SELECT / SHOW / WITH / EXPLAIN show a row preview (click for the full table); CREATE / INSERT / ALTER / DROP report <strong>OK</strong></li>
+          <li>A <code class="k">TEMPORARY</code> table or a <code class="k">SET</code> persists across the script — a session is attached when the script needs one</li>
+          <li>Cancel kills the running statement; the whole script is one history entry</li>
+        </ul>
+      </div>
+      <figure class="shot zoom"><img src="assets/img/multiquery-dark.png" alt="A six-statement script run as one: an editor with SELECT, CREATE TEMPORARY TABLE, INSERT, SELECT, DROP and SELECT, and a per-statement grid showing each statement's result (a preview or OK) and time." loading="lazy"></figure>
+    </div>
+  </div>
+</section>
+
 <!-- Data flow (flagship) -->
 <section id="data-flow">
   <div class="wrap">
