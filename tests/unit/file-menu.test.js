@@ -93,6 +93,13 @@ describe('file menu', () => {
     expect(document.querySelectorAll('.file-menu')).toHaveLength(1);
   });
 
+  it('autofocuses the first item (New Library) on open', async () => {
+    const app = mount();
+    openFileMenu(app);
+    await new Promise((r) => setTimeout(r));
+    expect(document.activeElement).toBe(item(/New Library/));
+  });
+
   it('footer shows the empty state when there are no queries', () => {
     const app = mount();
     openFileMenu(app);

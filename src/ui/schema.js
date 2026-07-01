@@ -35,9 +35,14 @@ const lineageDrag = (ident, payload) => ({
 });
 
 // The four spans every tree row shares: chevron, icon, label, meta. `expanded`
-// null → an empty chevron (column rows); true/false → the open/closed chevron.
+// null → an empty chevron (column rows); true/false → the same down-pointing
+// chevron rotated open/closed (matches the login screen's Advanced disclosure —
+// one icon, no icon-swap flash — rather than swapping between two glyphs).
 const treeRow = (icon, label, meta, { expanded, iconColor } = {}) => [
-  h('span', { class: 'chev' }, expanded == null ? null : (expanded ? Icon.chevDown() : Icon.chev())),
+  h('span', {
+    class: 'chev',
+    style: expanded == null ? null : { transform: expanded ? 'rotate(0deg)' : 'rotate(-90deg)' },
+  }, expanded == null ? null : Icon.chevDown()),
   h('span', { class: 'icon', style: iconColor ? { color: iconColor } : null }, icon),
   h('span', { class: 'label' }, label),
   h('span', { class: 'meta' }, meta),

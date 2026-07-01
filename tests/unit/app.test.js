@@ -182,6 +182,13 @@ describe('renderApp shell', () => {
     expect(app.root.querySelector('.login-screen')).not.toBeNull();
     expect(document.querySelector('.user-menu')).toBeNull(); // closed
   });
+  it('user menu autofocuses the Log out item on open', async () => {
+    const { app } = rendered();
+    app.dom.userBtn.dispatchEvent(new Event('click'));
+    const menu = document.querySelector('.user-menu');
+    await new Promise((r) => setTimeout(r));
+    expect(document.activeElement).toBe(menu.querySelector('.um-item.danger'));
+  });
   it('user menu closes on Escape and outside-click; header has a GitHub source link', () => {
     const { app } = rendered();
     app.dom.userBtn.dispatchEvent(new Event('click'));

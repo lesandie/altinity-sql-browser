@@ -16,6 +16,12 @@ export function flashToast(text, opts = {}) {
   el.textContent = text;
   el.classList.add('show');
   if (flashToast._timer) clearTimer(flashToast._timer);
-  flashToast._timer = setTimer(() => el.classList.remove('show'), duration);
+  flashToast._timer = setTimer(() => { flashToast._timer = null; el.classList.remove('show'); }, duration);
+  // Click to dismiss early / reread — rebound each call so it always clears
+  // *this* call's timer (the element is reused across calls, opts may differ).
+  el.onclick = () => {
+    if (flashToast._timer) { clearTimer(flashToast._timer); flashToast._timer = null; }
+    el.classList.remove('show');
+  };
   return el;
 }

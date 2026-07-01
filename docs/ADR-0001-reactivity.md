@@ -169,3 +169,17 @@ expand+first-fetch is wrapped in `batch()` so the row opens with its spinner in
 one repaint. This was the last slice — **#88 is complete**. The
 re-evaluation trigger in #91 still applies: if reference-replacement proves as
 forgettable as the old manual `renderSchema` calls, revisit via a fresh ADR.
+
+## Addendum — three session-only UI flags converted (#102)
+
+`state.shortcutsOpen`, `state.editingSavedId`, and `state.bannerDismissedFor`
+(previously bare fields — the latter two lived on `app` directly, not
+`app.state`) were converted to `signal(...)` and consolidated into `state.js`
+alongside the other session-only, non-persisted fields (`libraryFilter`,
+`resultSort`). None had a reactive reader before or after — each site that sets
+one already calls its own repaint (`renderSavedHistory`, `updateBanner`,
+`openShortcuts`'s own mount/unmount) — so this is a pure `.value` mechanical
+edit, not a new `effect()`. Housing them in `state.js` rather than on `app`
+matches every other slice in this file; #88's "last slice" note above refers to
+the schema panel specifically, not every remaining plain field in the
+codebase — this is a smaller, unrelated follow-up tidying three of those.

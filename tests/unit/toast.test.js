@@ -31,4 +31,30 @@ describe('flashToast', () => {
     const el = flashToast('x');
     expect(el.classList.contains('show')).toBe(true);
   });
+  it('clicking a visible toast dismisses it immediately and clears the pending timer', () => {
+    const setTimeout = vi.fn(() => 42);
+    const clearTimeout = vi.fn();
+    const el = flashToast('hi', { document, setTimeout, clearTimeout, duration: 999 });
+    expect(el.classList.contains('show')).toBe(true);
+    el.click();
+    expect(el.classList.contains('show')).toBe(false);
+    expect(clearTimeout).toHaveBeenCalledWith(42);
+  });
+  it('a stale auto-dismiss timer firing after a manual dismiss is a harmless no-op', () => {
+    const setTimeout = vi.fn(() => 5);
+    const clearTimeout = vi.fn();
+    const el = flashToast('hi', { document, setTimeout, clearTimeout, duration: 999 });
+    el.click();
+    expect(() => setTimeout.mock.calls[0][0]()).not.toThrow();
+    expect(el.classList.contains('show')).toBe(false);
+  });
+  it('clicking after the auto-dismiss already fired clears no stale timer', () => {
+    const setTimeout = vi.fn(() => 9);
+    const clearTimeout = vi.fn();
+    const el = flashToast('hi', { document, setTimeout, clearTimeout, duration: 100 });
+    setTimeout.mock.calls[0][0](); // auto-hide fires first
+    clearTimeout.mockClear();
+    el.click();
+    expect(clearTimeout).not.toHaveBeenCalled();
+  });
 });

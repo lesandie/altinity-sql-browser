@@ -119,6 +119,14 @@ auto-generated per-PR notes; this file is the curated, human-readable history.
   Also mirrors the app's favicon into every detached tab (a `faviconHref`
   seam, same pattern as the existing `stylesText` one) — `about:blank` ships
   neither, so a real tab previously showed the browser's generic icon.
+- **UI consistency polish** (#102): the schema tree's expand/collapse chevron
+  now rotates a single icon instead of swapping between two glyphs, matching
+  the login screen's Advanced disclosure. The share toast can be dismissed
+  early by clicking it (it no longer blocks clicks while visible). Opening the
+  user menu or the File menu now autofocuses a sensible first item (Log out /
+  New Library). `shortcutsOpen`, `editingSavedId`, and `bannerDismissedFor`
+  moved into `state.js` as signals, consistent with the rest of the ADR-0001
+  migration — no behavior change.
 
 ### Changed
 - State reactivity now uses `@preact/signals-core` (the third bundled runtime

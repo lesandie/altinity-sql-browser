@@ -8,33 +8,33 @@ describe('openShortcuts', () => {
   it('opens a modal and is idempotent while open', () => {
     const app = makeApp({ document });
     const r = openShortcuts(app);
-    expect(app.state.shortcutsOpen).toBe(true);
+    expect(app.state.shortcutsOpen.value).toBe(true);
     expect(document.querySelector('.modal-backdrop')).not.toBeNull();
     expect(openShortcuts(app)).toBeNull(); // already open
     r.close();
-    expect(app.state.shortcutsOpen).toBe(false);
+    expect(app.state.shortcutsOpen.value).toBe(false);
     expect(document.querySelector('.modal-backdrop')).toBeNull();
   });
   it('closes on Escape and ignores other keys', () => {
     const app = makeApp({ document });
     openShortcuts(app);
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'a' }));
-    expect(app.state.shortcutsOpen).toBe(true);
+    expect(app.state.shortcutsOpen.value).toBe(true);
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
-    expect(app.state.shortcutsOpen).toBe(false);
+    expect(app.state.shortcutsOpen.value).toBe(false);
   });
   it('closes when the backdrop is clicked', () => {
     const app = makeApp({ document });
     openShortcuts(app);
     document.querySelector('.modal-backdrop').dispatchEvent(new Event('click'));
-    expect(app.state.shortcutsOpen).toBe(false);
+    expect(app.state.shortcutsOpen.value).toBe(false);
   });
   it('card click does not close (stopPropagation)', () => {
     const app = makeApp({ document });
     openShortcuts(app);
     const card = document.querySelector('.modal-card');
     card.dispatchEvent(new Event('click', { bubbles: true }));
-    expect(app.state.shortcutsOpen).toBe(true);
+    expect(app.state.shortcutsOpen.value).toBe(true);
   });
   it('defaults document to global', () => {
     const app = makeApp();

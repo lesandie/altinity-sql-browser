@@ -24,10 +24,10 @@ const GESTURES = [
 /** Open the shortcuts modal. Idempotent while open (tracked on state). */
 export function openShortcuts(app) {
   const doc = app.document || document;
-  if (app.state.shortcutsOpen) return null;
-  app.state.shortcutsOpen = true;
+  if (app.state.shortcutsOpen.value) return null;
+  app.state.shortcutsOpen.value = true;
   const close = () => {
-    app.state.shortcutsOpen = false;
+    app.state.shortcutsOpen.value = false;
     backdrop.remove();
     doc.removeEventListener('keydown', escHandler);
   };

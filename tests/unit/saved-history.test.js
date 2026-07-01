@@ -77,7 +77,7 @@ describe('renderSavedHistory', () => {
     app.state.savedQueries = [{ id: 's1', name: 'Old', sql: '1', favorite: false }];
     renderSavedHistory(app);
     byTitle(app.dom.savedList, 'Edit name & description').dispatchEvent(new Event('click', { bubbles: true }));
-    expect(app.editingSavedId).toBe('s1');
+    expect(app.state.editingSavedId.value).toBe('s1');
     const nameInput = app.dom.savedList.querySelector('.sv-edit-name');
     const descInput = app.dom.savedList.querySelector('.sv-edit-desc');
     expect(nameInput.value).toBe('Old');
@@ -86,7 +86,7 @@ describe('renderSavedHistory', () => {
     descInput.value = 'a description';
     nameInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     expect(app.state.savedQueries[0]).toMatchObject({ name: 'New', description: 'a description' });
-    expect(app.editingSavedId).toBeNull();
+    expect(app.state.editingSavedId.value).toBeNull();
     expect(app.actions.rerenderTabs).toHaveBeenCalled();
     // a second commit on the now-detached field is a no-op (the `done` guard)
     nameInput.value = 'AGAIN';
@@ -97,7 +97,7 @@ describe('renderSavedHistory', () => {
     const reName = app.dom.savedList.querySelector('.sv-edit-name');
     reName.value = 'XYZ';
     reName.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-    expect(app.editingSavedId).toBeNull();
+    expect(app.state.editingSavedId.value).toBeNull();
     expect(app.state.savedQueries[0].name).toBe('New');
   });
   it('saved: edit form — description prefilled; ⌘/Ctrl+Enter + Save commit, Escape/Cancel + empty name revert', () => {
@@ -125,13 +125,13 @@ describe('renderSavedHistory', () => {
     descInput.value = 'nope';
     descInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     expect(app.state.savedQueries[0].description).toBe('d2');
-    expect(app.editingSavedId).toBeNull();
+    expect(app.state.editingSavedId.value).toBeNull();
     // Save button with a blank name does not rename (commit guard)
     open();
     app.dom.savedList.querySelector('.sv-edit-name').value = '   ';
     app.dom.savedList.querySelector('.sv-edit-save').dispatchEvent(new Event('click', { bubbles: true }));
     expect(app.state.savedQueries[0].name).toBe('Old');
-    expect(app.editingSavedId).toBeNull();
+    expect(app.state.editingSavedId.value).toBeNull();
     // Cancel button reverts an edited name
     open();
     app.dom.savedList.querySelector('.sv-edit-name').value = 'ZZZ';
