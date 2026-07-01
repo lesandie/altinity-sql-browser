@@ -90,3 +90,17 @@ thresholds, and a single ClickHouse-served artifact built by esbuild.
 - **Convert friction into memory.** If a task needed retried commits or hit an
   unexpected failure (test/env/scope surprise), save a memory so the next
   session doesn't repeat it.
+- **Subagent fan-out is read-only unless the prompt says otherwise.** A
+  forked or spawned agent inherits the *entire* parent conversation —
+  including this file and any skill script being run — so without an
+  explicit boundary it can conclude it's the one meant to finish the whole
+  task: committing, pushing, opening a PR, editing `CHANGELOG.md`, or
+  writing to the memory directory. When fanning out review/finder/analysis
+  subagents mid-task, state the boundary in every prompt ("read-only: no
+  Edit/Write, no git/gh mutating commands, no TaskCreate/TaskUpdate, no
+  memory writes — return only \<schema\>"), and prefer a fresh,
+  self-contained agent over `fork` when the parent context includes an
+  in-progress mutating workflow — a fork inherits that context, a fresh
+  agent doesn't. Diff the working tree, `git log`, and `gh pr list` after
+  every batch regardless: an instruction in a prompt is not an enforced tool
+  restriction.

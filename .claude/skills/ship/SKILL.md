@@ -13,6 +13,8 @@ Follow `CLAUDE.md` throughout (hard rules 1–5 + the Working-discipline section
 
 > Parallel / worktree note: this skill assumes it **owns its working directory**. To run several `/ship`s at once, launch each session with `claude --worktree <name>` so they don't collide on git state or files — **never run two `/ship`s in the same dir**. Only parallelize dependency-independent issues (see #68's Parallelization section); never run an issue against an unmerged dependency.
 
+> Subagent note: any `Agent` call this skill makes — for planning, review, or analysis — is **read-only** by default, and inherits this entire file plus CLAUDE.md just by being spawned mid-run. Inheriting these steps is not the same as being told to execute them. State the boundary explicitly in the subagent's prompt (no Edit/Write, no git/gh mutating commands, no TaskCreate/TaskUpdate, no memory writes — return only the requested output), and prefer a fresh non-fork agent over `fork` for this kind of fan-out. **Steps 5–7 — reconcile, PR, and the merge gate — are performed by this session only, never delegated to a subagent.** After any batch of subagents returns, verify with `git diff`, `git log`, and `gh pr list` before trusting a self-reported summary.
+
 ## 1 — Orient & set up the workspace
 - **Collision guard (parallel safety).** Before any git op, confirm isolation: `[ "$(git rev-parse --git-dir)" != "$(git rev-parse --git-common-dir)" ]` → true means you're in a dedicated worktree (good). If you're in the **main** working tree (the two are equal) **and** `git worktree list` shows more than one entry, 🛑 **stop** and tell me — another session may share this dir; relaunch with `claude --worktree <name>`. Main tree as the *sole* worktree is fine for a single `/ship` — note it and proceed.
 - `gh issue view <ISSUE>` — read Goal / scope / Key implementation / **Acceptance criteria** (and any "Reconciled" banner).
@@ -43,6 +45,7 @@ Follow `CLAUDE.md` throughout (hard rules 1–5 + the Working-discipline section
 - An out-of-scope bug / footgun you spotted → open a **separate** issue labelled **`inbox`** (file:line + why deferred) and mention it; don't fold it into this PR.
 
 ## 6 — PR
+- Performed by **this session only** (see the subagent note above) — never delegate the commit/push/PR-create sequence to a spawned agent.
 - Commit using the repo's footer convention (Co-Authored-By + Claude-Session). `git push -u origin <branch>`.
 - `gh pr create --base main` — title + body per `.github/PULL_REQUEST_TEMPLATE.md`; **`Closes #<ISSUE>`** if it fully satisfies the issue, else **`Part of #<ISSUE>`**. Tick the checklist (gate, layers, deps, CHANGELOG, reconcile).
 - Report the **PR URL**.
@@ -51,4 +54,4 @@ Follow `CLAUDE.md` throughout (hard rules 1–5 + the Working-discipline section
 Do **not** merge. Summarise what shipped + the PR link, and wait. Merging to `main` on a near-1.0 product is a human call (tapped from mobile once CI is green). If told to continue, pick the next issue in the **#68** build order and run the same cycle on it.
 
 ## After — friction → memory
-If anything needed retries or surprised you (test / env / scope), save a memory so the next `/ship` doesn't repeat it.
+If anything needed retries or surprised you (test / env / scope), save a memory so the next `/ship` doesn't repeat it. This session does the saving, not a subagent it spawned.
