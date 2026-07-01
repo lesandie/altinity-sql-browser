@@ -54,6 +54,21 @@ describe('buildCardModel', () => {
     expect(leaf.cols).toEqual([]);
     expect(leaf.overflow).toBe(0);
     expect(leaf.skipLine).toBe('');
+    expect(leaf.comment).toBe('');
+    expect(leaf.commentFull).toBe('');
+  });
+  it('trims and caps the table comment at MAX_COMMENT, but keeps the full text in commentFull for a hover title', () => {
+    const m = buildCardModel({ label: 'db.t' }, { comment: '  raw events, ingested by the OTel collector  ' });
+    expect(m.comment).toBe('raw events, ingested by the OTel collector');
+    expect(m.commentFull).toBe('raw events, ingested by the OTel collector');
+    const long = buildCardModel({ label: 'db.t' }, { comment: 'x'.repeat(CARD.MAX_COMMENT + 10) });
+    expect(long.comment).toHaveLength(CARD.MAX_COMMENT);
+    expect(long.comment.endsWith('…')).toBe(true);
+    expect(long.commentFull).toHaveLength(CARD.MAX_COMMENT + 10); // untruncated
+  });
+  it('has no comment when the table row carries none', () => {
+    expect(buildCardModel({ label: 'db.t' }, {}).comment).toBe('');
+    expect(buildCardModel({ label: 'db.t' }, { comment: '   ' }).comment).toBe('');
   });
   it('falls back through label → id → "" for the title, and kind → "table" for the engine', () => {
     expect(buildCardModel({ label: 'a.b' }).title).toBe('a.b');
@@ -93,6 +108,14 @@ describe('cardSize', () => {
   it('honors a wide overflow / skip line in the width', () => {
     const m = { title: 't', summary: 's', cols: [], overflow: 999, skipLine: 'idx: ' + 'z'.repeat(60) + ' (minmax)' };
     expect(cardSize(m).w).toBeGreaterThan(CARD.MIN_W);
+  });
+  it('adds one row for the comment, and honors its width', () => {
+    const base = { title: 't', summary: 's', comment: '', cols: [], overflow: 0, skipLine: '' };
+    const withComment = { ...base, comment: 'a table comment' };
+    expect(cardSize(withComment, { rowH: 10, headerH: 20 }).h).toBe(30); // 20 + 1 row
+    expect(cardSize(base, { rowH: 10, headerH: 20 }).h).toBe(20); // no comment → no extra row
+    const wide = { ...base, comment: 'z'.repeat(60) };
+    expect(cardSize(wide).w).toBeGreaterThan(cardSize(base).w);
   });
 });
 

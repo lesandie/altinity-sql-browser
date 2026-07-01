@@ -170,7 +170,17 @@ function renderGraphSvg(g, opts = {}) {
       const fire = (e) => { e.stopPropagation(); opts.onNode(n, e); };
       rect.addEventListener('click', fire); text.addEventListener('click', fire);
     }
-    svg.appendChild(rect); svg.appendChild(text);
+    // Wrap in a <g> so a single <title> child (a native browser tooltip on hover
+    // over either the box or its label) covers both — only when opts.nodeTitle
+    // supplies text (the schema graph's table comment; the pipeline graph passes
+    // no nodeTitle at all, so its plain boxes stay tooltip-free).
+    const title = opts.nodeTitle && opts.nodeTitle(n);
+    if (title) {
+      const group = s('g', {}, s('title', {}, title), rect, text);
+      svg.appendChild(group);
+    } else {
+      svg.appendChild(rect); svg.appendChild(text);
+    }
   }
   return { svg, width: g.width, height: g.height, nodeCount: g.nodes.length };
 }
@@ -186,15 +196,17 @@ export function buildSchemaSvg(graph, dagre, onNode) {
     nodeClass: (n) => 'eg-node eg-node--' + (n.kind || 'table'),
     edgeClass: (e) => 'eg-edge eg-edge--' + (e.kind || 'feeds'),
     edgeLabel: (e) => e.kind,
+    nodeTitle: (n) => n.comment || null,
     onNode,
   });
 }
 
 // Draw one node as a rich card: a kind-coloured background rect with a title +
-// engine/rows/bytes summary header, then a row per column (with key-role badges),
-// an overflow row, and a skip-index row — all placed at the deterministic offsets
-// cardSize() used to size the node, so no DOM measurement is needed. `model` is
-// always supplied by renderRichGraphSvg (a header-only model for a card-less node).
+// engine/rows/bytes summary header, then (when the table has one) a comment
+// row, a row per column (with key-role badges), an overflow row, and a
+// skip-index row — all placed at the deterministic offsets cardSize() used to
+// size the node, so no DOM measurement is needed. `model` is always supplied by
+// renderRichGraphSvg (a header-only model for a card-less node).
 function renderCardNode(n, model, nodeClass, onNode) {
   const g = s('g', { class: 'eg-card', 'data-node-id': n.id });
   const rect = s('rect', { class: nodeClass(n), x: n.x, y: n.y, width: n.w, height: n.h, rx: '5' });
@@ -206,6 +218,17 @@ function renderCardNode(n, model, nodeClass, onNode) {
   g.appendChild(s('line', { class: 'eg-card-divider', x1: n.x, y1: divY, x2: n.x + n.w, y2: divY }));
   let row = 0;
   const rowY = () => divY + row * CARD.ROW_H + CARD.ROW_BASELINE;
+  if (model.comment) {
+    // The comment row is capped to CARD.MAX_COMMENT for card width — a <title>
+    // sibling (same "<g><title>…</title>…</g>" idiom renderGraphSvg uses for the
+    // plain graph's nodeTitle) carries the full text as a native hover tooltip,
+    // so nothing truncated here is unreachable without opening the detail pane.
+    // A sibling, not a child of the <text> itself, so the text's own textContent
+    // stays just the displayed (possibly truncated) line.
+    const commentText = s('text', { class: 'eg-card-comment', x: left, y: rowY() }, model.comment);
+    g.appendChild(s('g', {}, s('title', {}, model.commentFull || model.comment), commentText));
+    row++;
+  }
   for (const c of model.cols) {
     const t = s('text', { class: 'eg-col', x: left, y: rowY() },
       s('tspan', { class: 'eg-col-name' }, c.name),

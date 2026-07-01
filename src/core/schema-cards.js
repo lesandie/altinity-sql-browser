@@ -4,7 +4,7 @@
 // pure so the geometry (which dagre needs *before* layout) is fully testable
 // under happy-dom, which has no layout engine to measure rendered text.
 
-import { formatRows, formatBytes } from './format.js';
+import { formatRows, formatBytes, truncate } from './format.js';
 
 // Card geometry — the single source of truth shared by cardSize() (which feeds
 // dagre) and the SVG renderer (which places text at these offsets). HEADER_H
@@ -25,14 +25,14 @@ export const CARD = {
               // Map key/value, tokenbf on Body, …) can't blow the card absurdly wide.
   MAX_TYPE: 28, // truncate the displayed column type — a big Enum/Tuple/Map would
                 // otherwise blow the card (and the whole graph) absurdly wide.
+  MAX_COMMENT: 60, // cap the table's own COMMENT line the same way — the full text
+                   // is still available in the table-info panel (#column comments
+                   // and the DDL live there, not on the card).
 };
 
 // Clamp an over-long column type for the card (the full type stays in the detail
 // pane). Keeps a giant inline Enum8('a'=1, …) from stretching the layout.
-const clampType = (t) => {
-  const s = String(t == null ? '' : t);
-  return s.length > CARD.MAX_TYPE ? s.slice(0, CARD.MAX_TYPE - 1) + '…' : s;
-};
+const clampType = (t) => truncate(t, CARD.MAX_TYPE);
 
 // A ClickHouse UInt8 flag is 1/0, but JSON vs JSONStrings formats deliver it as
 // a number or a string — treat both (and a real boolean) uniformly.
@@ -52,15 +52,19 @@ export function columnRoles(col) {
 /**
  * Build the display model for one node's card from its lineage row + columns +
  * skip-indices. `node` carries `{ label, kind }`; `tableRow` is the system.tables
- * row (engine/total_rows/total_bytes), `columns` the system.columns rows, and
- * `skipIndices` the system.data_skipping_indices rows — any may be missing (an
- * external/dictionary-source leaf has none), degrading to a header-only card.
+ * row (engine/total_rows/total_bytes/comment), `columns` the system.columns rows,
+ * and `skipIndices` the system.data_skipping_indices rows — any may be missing
+ * (an external/dictionary-source leaf has none), degrading to a header-only card.
+ * `comment` is capped to MAX_COMMENT for the card's own width; `commentFull` is
+ * the untruncated (trimmed) text, for a hover title on the drawn row.
  */
 export function buildCardModel(node, tableRow, columns, skipIndices) {
   const n = node || {};
   const tr = tableRow || {};
   const engine = tr.engine || n.kind || 'table';
   const summary = engine + ' · ' + formatRows(tr.total_rows) + ' rows · ' + formatBytes(tr.total_bytes);
+  const commentFull = (tr.comment || '').trim();
+  const comment = truncate(commentFull, CARD.MAX_COMMENT);
   const allCols = columns || [];
   const cols = allCols.slice(0, CARD.MAX_COLS).map((c) => ({
     name: c.name, type: clampType(c.type), roles: columnRoles(c),
@@ -72,26 +76,27 @@ export function buildCardModel(node, tableRow, columns, skipIndices) {
     ? 'idx: ' + idx.slice(0, CARD.MAX_IDX).map((i) => i.name + ' (' + (i.type || '') + ')').join(', ')
       + (idxOverflow ? ', +' + idxOverflow + ' more' : '')
     : '';
-  return { title: n.label || n.id || '', kind: n.kind || 'table', summary, cols, overflow, skipLine };
+  return { title: n.label || n.id || '', kind: n.kind || 'table', summary, comment, commentFull, cols, overflow, skipLine };
 }
 
 /**
  * The pixel size {w,h} of a card, computed purely from its model so dagre can lay
- * it out. Height = header + one row per shown column (+ overflow + skip rows);
- * width = the widest text line (monospace estimate) plus side padding, floored at
- * MIN_W. `opts` overrides the CARD constants (used by tests).
+ * it out. Height = header + one row per shown column (+ comment + overflow + skip
+ * rows); width = the widest text line (monospace estimate) plus side padding,
+ * floored at MIN_W. `opts` overrides the CARD constants (used by tests).
  */
 export function cardSize(model, opts = {}) {
-  const m = model || { title: '', summary: '', cols: [], overflow: 0, skipLine: '' };
+  const m = model || { title: '', summary: '', comment: '', cols: [], overflow: 0, skipLine: '' };
   const ROW_H = opts.rowH != null ? opts.rowH : CARD.ROW_H;
   const HEADER_H = opts.headerH != null ? opts.headerH : CARD.HEADER_H;
   const CHAR_W = opts.charW != null ? opts.charW : CARD.CHAR_W;
   const PAD_X = opts.padX != null ? opts.padX : CARD.PAD_X;
   const BADGE_W = opts.badgeW != null ? opts.badgeW : CARD.BADGE_W;
-  const rowCount = m.cols.length + (m.overflow ? 1 : 0) + (m.skipLine ? 1 : 0);
+  const rowCount = (m.comment ? 1 : 0) + m.cols.length + (m.overflow ? 1 : 0) + (m.skipLine ? 1 : 0);
   const h = HEADER_H + rowCount * ROW_H;
   const textW = (str) => String(str).length * CHAR_W;
   let maxLine = Math.max(textW(m.title), textW(m.summary));
+  if (m.comment) maxLine = Math.max(maxLine, textW(m.comment));
   for (const c of m.cols) {
     maxLine = Math.max(maxLine, textW(c.name + ' ' + c.type) + c.roles.length * BADGE_W);
   }

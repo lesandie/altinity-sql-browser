@@ -271,6 +271,30 @@ describe('schema lineage graph', () => {
     expect(el.querySelector('.schema-graph-legend')).not.toBeNull();
   });
 
+  it('shows a table comment as a native hover tooltip (<title>) on its node', () => {
+    const g = {
+      focus: { kind: 'db', db: 'lin' },
+      nodes: [
+        { id: 'lin.a', label: 'a', kind: 'table', db: 'lin', name: 'a', comment: 'raw events' },
+        { id: 'lin.b', label: 'b', kind: 'table', db: 'lin', name: 'b' }, // no comment → no tooltip
+      ],
+      edges: [],
+    };
+    const el = renderSchemaGraph(APP, { schemaGraph: g });
+    const groups = [...el.querySelectorAll('svg.explain-graph > g')];
+    const withTitle = groups.find((gr) => gr.querySelector('title'));
+    expect(withTitle.querySelector('title').textContent).toBe('raw events');
+    expect(withTitle.querySelector('rect.eg-node--table')).not.toBeNull();
+    // the commentless node's rect/text are appended directly (no wrapping <g>, no <title>)
+    expect(el.querySelectorAll('svg.explain-graph > g')).toHaveLength(1);
+    expect(el.querySelectorAll('svg.explain-graph > rect.eg-node--table')).toHaveLength(1);
+  });
+
+  it('the pipeline graph never adds a hover title (no comment concept for a DOT box)', () => {
+    const el = renderExplainGraph(APP, { rawText: 'digraph{a->b}' });
+    expect(el.querySelector('title')).toBeNull();
+  });
+
   it('clicking a node runs SHOW CREATE for it (insertCreate) into the editor', () => {
     const actions = { insertCreate: vi.fn() };
     const el = renderSchemaGraph({ document, Dagre: dagre, actions }, { schemaGraph: GRAPH });
@@ -845,7 +869,7 @@ describe('buildRichSchemaSvg (rich cards)', () => {
       {
         id: 'lin.a', label: 'a', kind: 'table', db: 'lin', name: 'a',
         card: {
-          title: 'lin.a', kind: 'table', summary: 'MergeTree · 5 rows · 0 B',
+          title: 'lin.a', kind: 'table', summary: 'MergeTree · 5 rows · 0 B', comment: 'raw ingest table',
           cols: [{ name: 'id', type: 'UInt64', roles: ['PK', 'SK'] }, { name: 'd', type: 'Date', roles: [] }],
           overflow: 2, skipLine: 'idx: i (minmax)',
         },
@@ -874,6 +898,11 @@ describe('buildRichSchemaSvg (rich cards)', () => {
     expect(svg.querySelector('tspan.eg-badge--sk')).not.toBeNull();
     expect([...svg.querySelectorAll('text.eg-col-more')].map((t) => t.textContent)).toContain('+2 more');
     expect(svg.querySelector('text.eg-skipidx').textContent).toBe('idx: i (minmax)');
+    expect(svg.querySelector('text.eg-card-comment').textContent).toBe('raw ingest table');
+    // the comment's <title> is a sibling (not nested in the <text>), so hovering
+    // the row reveals the full (here: same, since it's short) text without
+    // polluting the visible line's own textContent.
+    expect(svg.querySelector('text.eg-card-comment').parentElement.querySelector('title').textContent).toBe('raw ingest table');
     // only the labelled edge draws a mid-edge label; the empty-kind edge draws none
     expect([...svg.querySelectorAll('text.eg-edge-label')].map((t) => t.textContent)).toEqual(['feeds']);
   });
@@ -884,6 +913,31 @@ describe('buildRichSchemaSvg (rich cards)', () => {
     expect(titles).toContain('mv'); // buildCardModel(node) → label
     const headers = [...built.svg.querySelectorAll('text.eg-card-header')].map((t) => t.textContent);
     expect(headers).toContain('mv · — rows · —'); // engine falls back to kind, no row/byte data
+  });
+
+  it('the comment row\'s <title> carries the full untruncated text when the visible line was capped', () => {
+    const g = {
+      nodes: [{
+        id: 'lin.c', label: 'c', kind: 'table', db: 'lin', name: 'c',
+        card: {
+          title: 'lin.c', kind: 'table', summary: 'MergeTree · 0 rows · 0 B',
+          comment: 'a very long…', commentFull: 'a very long comment that would not fit on the card at all',
+          cols: [], overflow: 0, skipLine: '',
+        },
+      }],
+      edges: [],
+    };
+    const built = buildRichSchemaSvg(g, dagre);
+    const commentText = built.svg.querySelector('text.eg-card-comment');
+    expect(commentText.textContent).toBe('a very long…'); // the capped display line only
+    expect(commentText.parentElement.querySelector('title').textContent)
+      .toBe('a very long comment that would not fit on the card at all');
+  });
+
+  it('draws no comment row for a card without one', () => {
+    const g = { nodes: [{ id: 'lin.b', label: 'b', kind: 'table', db: 'lin', name: 'b' }], edges: [] };
+    const built = buildRichSchemaSvg(g, dagre);
+    expect(built.svg.querySelector('text.eg-card-comment')).toBeNull();
   });
 
   it('fires onNode with the clicked node (which carries db/name for SHOW CREATE)', () => {

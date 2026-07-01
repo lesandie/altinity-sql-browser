@@ -472,6 +472,7 @@ describe('loadSchemaLineage', () => {
     expect(tablesSql).toMatch(/total_bytes/);
     expect(tablesSql).toMatch(/partition_key/);
     expect(tablesSql).toMatch(/sampling_key/);
+    expect(tablesSql).toMatch(/\bcomment\b/);
   });
   it('sorts underscore-prefixed tables after regular ones', async () => {
     const seen = [];
@@ -602,20 +603,22 @@ describe('loadLineageTransitive', () => {
 });
 
 describe('loadTableDetail', () => {
-  it('returns columns, per-partition sums, and DDL (best-effort)', async () => {
+  it('returns columns (with comments), per-partition sums, DDL, and the table comment (best-effort)', async () => {
     const ctx = ctxWith((url, init) => {
       const sql = init.body;
       if (/system\.parts/.test(sql)) return jsonResp({ data: [{ partition: '2024', parts: 3, rows: 100, bytes: 5000 }] });
-      if (/create_table_query/.test(sql)) return jsonResp({ data: [{ ddl: 'CREATE TABLE a.t (id UInt64) ENGINE = MergeTree' }] });
-      return jsonResp({ data: [{ name: 'id', type: 'UInt64', is_in_primary_key: 1, position: 1 }] });
+      if (/create_table_query/.test(sql)) return jsonResp({ data: [{ ddl: 'CREATE TABLE a.t (id UInt64) ENGINE = MergeTree', comment: 'ids table' }] });
+      return jsonResp({ data: [{ name: 'id', type: 'UInt64', comment: 'the id', is_in_primary_key: 1, position: 1 }] });
     });
     const d = await loadTableDetail(ctx, 'a', 't');
     expect(d.columns).toHaveLength(1);
+    expect(d.columns[0].comment).toBe('the id');
     expect(d.partitions[0].partition).toBe('2024');
     expect(d.ddl).toContain('CREATE TABLE');
+    expect(d.comment).toBe('ids table');
   });
-  it('degrades to empty arrays + empty DDL when the system tables are denied', async () => {
+  it('degrades to empty arrays + empty DDL/comment when the system tables are denied', async () => {
     const ctx = ctxWith(() => jsonResp('Code: 497', false, 500));
-    expect(await loadTableDetail(ctx, 'a', 't')).toEqual({ columns: [], partitions: [], ddl: '' });
+    expect(await loadTableDetail(ctx, 'a', 't')).toEqual({ columns: [], partitions: [], ddl: '', comment: '' });
   });
 });

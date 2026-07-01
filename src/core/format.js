@@ -19,6 +19,31 @@ export function formatRows(n) {
   return (n / 1e9).toFixed(n < 1e10 ? 1 : 0) + 'B';
 }
 
+/**
+ * Truncate `str` to `max` chars, replacing the cut-off tail with a single '…'
+ * (so the result is exactly `max` chars long when truncated, for any `max >= 1`
+ * — `max <= 0` collapses to just '…', never a string longer than the input
+ * would need). Short strings pass through unchanged.
+ */
+export function truncate(str, max) {
+  const s = String(str == null ? '' : str);
+  return s.length > max ? s.slice(0, Math.max(0, max - 1)) + '…' : s;
+}
+
+/**
+ * How much of a column's on-disk footprint compression left behind:
+ * `(compressed/uncompressed) * 100`, rounded to the nearest integer and
+ * suffixed '%' — e.g. a column compressed to a quarter of its raw size reads
+ * '25%'. Returns '—' when `uncompressed` is 0/null/NaN (nothing to divide by
+ * — e.g. an empty table) or `compressed` isn't a number.
+ */
+export function formatCompressionRatio(compressed, uncompressed) {
+  const c = Number(compressed);
+  const u = Number(uncompressed);
+  if (!u || compressed == null || Number.isNaN(c)) return '—';
+  return Math.round((c / u) * 100) + '%';
+}
+
 /** Human-readable byte count (B/KB/MB/GB/TB). Returns '—' for null/NaN. */
 export function formatBytes(n) {
   if (n == null || Number.isNaN(Number(n))) return '—';
@@ -149,7 +174,7 @@ export function inferQueryName(sql) {
   const s = String(sql).replace(/\s+/g, ' ').trim();
   const m = /\bFROM\s+([A-Za-z_][\w.`"]*)/i.exec(s);
   if (m) return 'Query · ' + m[1].replace(/[`"]/g, '');
-  return s.length > 48 ? s.slice(0, 45) + '…' : s;
+  return truncate(s, 48);
 }
 
 /**

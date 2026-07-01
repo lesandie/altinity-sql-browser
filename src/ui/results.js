@@ -5,7 +5,7 @@
 import { h, zoomScale, withDocument, attachBackdropClose } from './dom.js';
 import { Icon } from './icons.js';
 import { loadingPlaceholder } from './placeholder.js';
-import { formatRows, formatBytes, isNumericType } from '../core/format.js';
+import { formatRows, formatBytes, isNumericType, truncate } from '../core/format.js';
 import { looksLikeHtml, prettyValue } from '../core/cell.js';
 import { sortRows } from '../core/sort.js';
 import { autoChart, schemaKey, chartFieldOptions, chartColors, chartJsConfig, chartCfgValid, normalizeChartCfg, unzoomChartEvent, chartRowCap } from '../core/chart-data.js';
@@ -624,7 +624,7 @@ export function renderGrid({ columns, rows: rawRows, sort, onSort, widths, onCel
       // in a side drawer so one fat column (e.g. HTML blobs) can't dominate.
       tr.appendChild(h('td', {
         class: 'cell' + (isNum ? ' num' : ''),
-        title: text.length > 100 ? text.slice(0, 100) + '…' : text,
+        title: truncate(text, 100),
         onclick: () => onCell(columns[ci].name, columns[ci].type, v),
       }, h('div', { class: 'cell-val' }, text)));
     });

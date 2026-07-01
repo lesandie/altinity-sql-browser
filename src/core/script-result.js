@@ -5,6 +5,8 @@
 // grid (renderTable) consumes. The script summary grid shows a one-line preview
 // of the first row in column 2; clicking it opens the full table in a side pane.
 
+import { truncate } from './format.js';
+
 // The display cap for a script-mode SELECT. The runner asks the server for
 // SELECT_ROW_CAP + 1 rows (so it can tell a result was truncated — at exactly
 // the cap it can't) and shows at most SELECT_ROW_CAP.
@@ -38,6 +40,5 @@ export function parseSelectResult(rawText, cap = SELECT_ROW_CAP) {
  */
 export function firstRowPreview(rows, max = 160) {
   if (!rows || !rows.length) return '';
-  const s = rows[0].map((v) => (v == null ? '' : String(v))).join(', ');
-  return s.length > max ? s.slice(0, max - 1) + '…' : s;
+  return truncate(rows[0].map((v) => (v == null ? '' : String(v))).join(', '), max);
 }
