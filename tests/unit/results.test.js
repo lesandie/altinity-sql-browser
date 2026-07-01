@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { renderResults, renderJson, renderTable, renderChart, colResizeWidth, openCellDetail, openRowsViewer, installChartZoomFix, visCap, expandDataPane } from '../../src/ui/results.js';
 import { makeApp } from '../helpers/fake-app.js';
 import { newResult } from '../../src/core/stream.js';
-import { schemaKey } from '../../src/core/chart-data.js';
+import { schemaKey, chartRowCap } from '../../src/core/chart-data.js';
 
 const click = (el) => el.dispatchEvent(new Event('click', { bubbles: true }));
 
@@ -775,6 +775,27 @@ describe('renderChart', () => {
     const small = appWithResult(tableResult(), { resultView: 'chart' });
     renderResults(small);
     expect(small.dom.resultsRegion.querySelector('.chart-cap-note')).toBeNull();
+  });
+  it('switching chart type re-slices to the new type\'s cap and updates the note', () => {
+    const r = newResult('Table');
+    r.columns = [{ name: 'k', type: 'String' }, { name: 'v', type: 'UInt64' }];
+    r.rows = Array.from({ length: 600 }, (_, i) => ['k' + i, String(i)]);
+    r.progress = { rows: 600, bytes: 100, elapsed_ns: 5e6 };
+    const app = appWithResult(r, { resultView: 'chart' });
+    renderResults(app);
+    // default (hbar, autoChart's categorical pick) cap is 500 < 600 rows
+    expect(app.activeTab().chartCfg.type).toBe('hbar');
+    expect(app.dom.resultsRegion.querySelector('.chart-cap-note').textContent)
+      .toBe('first ' + chartRowCap('hbar') + ' of 600 rows');
+    expect(app.chart.config.data.labels).toHaveLength(chartRowCap('hbar'));
+    // switch to pie: a much tighter legibility cap — re-slices and the note shrinks with it
+    change(fieldSel(app.dom.resultsRegion, 'Type'), 'pie');
+    expect(app.dom.resultsRegion.querySelector('.chart-cap-note').textContent).toContain('first ' + chartRowCap('pie') + ' of');
+    expect(app.chart.config.data.labels).toHaveLength(chartRowCap('pie'));
+    // switch to line: its cap (5000) exceeds the row count — no truncation, no note at all
+    change(fieldSel(app.dom.resultsRegion, 'Type'), 'line');
+    expect(app.dom.resultsRegion.querySelector('.chart-cap-note')).toBeNull();
+    expect(app.chart.config.data.labels).toHaveLength(600);
   });
   it('destroys the previous Chart instance on re-render, and re-derives config on a new schema', () => {
     const app = appWithResult(chartResult(), { resultView: 'chart' });

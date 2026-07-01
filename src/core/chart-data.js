@@ -14,9 +14,19 @@ const TIME_RE = /^(Date|DateTime)/;
 // than being misclassified by a mere prefix and dropped from autoChart.
 const ORDINAL_RE = /^(year|quarter|month|week|day|dayofweek|dow|hour|minute)s?$/i;
 
-// Plots past this get unreadable, so the chart shows the first N (the table
-// stays full). Exported so the renderer can surface the truncation to the user.
-export const CHART_ROW_CAP = 500;
+// Plots past this get unreadable, so each chart type shows only its first N
+// rows (the table stays full) — the readable ceiling differs by shape: pie
+// legibility caps out around 20-30 slices regardless of monitor width; bar/
+// column are bound by minimum bar+gap width for legible category ticks;
+// line/area are point-density bound, so a wide canvas can plot thousands of
+// points before individual ones blur together. Exported so the renderer can
+// surface the truncation to the user.
+export const CHART_ROW_CAPS = { pie: 30, hbar: 500, bar: 1000, line: 5000, area: 5000 };
+
+/** The row cap for a chart type, falling back to 500 (the old flat cap) for an unmapped type. */
+export function chartRowCap(type) {
+  return CHART_ROW_CAPS[type] ?? 500;
+}
 
 /** Strip `Nullable(...)` / `LowCardinality(...)` wrappers down to the base type. */
 export function chartStripType(type) {
@@ -233,7 +243,7 @@ export function chartColors(read) {
  * - otherwise: one dataset per measure in `cfg.y`.
  */
 export function buildChartData(columns, rows, cfg) {
-  const slice = rows.slice(0, CHART_ROW_CAP);
+  const slice = rows.slice(0, chartRowCap(cfg.type));
   const num = (v) => (v == null || v === '' ? 0 : Number(v) || 0);
   const cats = []; // raw X keys, first-seen order
   const seen = new Set();
