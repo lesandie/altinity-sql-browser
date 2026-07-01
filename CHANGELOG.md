@@ -213,6 +213,21 @@ auto-generated per-PR notes; this file is the curated, human-readable history.
   .move()` (Chrome 110+) so a cancelled/failed export leaves a clearly-labeled,
   inspectable partial artifact. Falls back to leaving the plain (non-renamed)
   file on browsers without `.move()` support, or if the rename itself fails (#105).
+- Every backdrop/panel modal (the cell-detail drawer, the rows-viewer pane, the
+  graph overlay, the file-menu confirm dialog, the keyboard-shortcuts modal)
+  closed on **any** `click` reaching its backdrop, without checking where the
+  gesture's `mousedown` actually landed. A browser's `click` fires on the
+  nearest common ancestor of `mousedown`/`mouseup`, not the `mousedown` target,
+  so dragging a text selection from inside the panel past its edge before
+  releasing produced a `click` targeting the backdrop directly — the panel's
+  own `stopPropagation()` never ran (the panel wasn't in that click's
+  propagation path at all) and the modal closed, discarding the in-progress
+  selection. A new shared `attachBackdropClose` (`src/ui/dom.js`) tracks where
+  `mousedown` landed and only closes on a `click` whose `mousedown` also
+  landed on the backdrop itself; all five call sites now share it instead of
+  each pairing an `onclick: close` backdrop with an `onclick: stopPropagation`
+  panel. The cell-detail drawer's resize-drag one-shot click-swallow listener
+  (#101) is superseded by the same general fix. (#110)
 
 ## [0.1.5] - 2026-06-29
 
