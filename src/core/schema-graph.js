@@ -111,14 +111,19 @@ export function buildSchemaGraph(rows, focus) {
   // Every creation passes explicit db/name (callers build the id via joinId/rowId,
   // so they always know the parts) — keeping a dotted *database* correct, not just a
   // dotted table. The db/name args are ignored when the node already exists.
-  const node = (id, kind, db, name) => {
-    if (!nodes.has(id)) nodes.set(id, { id, label: id, kind, db, name });
+  // `comment` is only known for a real system.tables row (the first pass below);
+  // a node first reached as a bare dependency reference gets '' and is never
+  // overwritten once created — the owning row's own node() call always runs in
+  // that same first pass, before any dependency processing.
+  const node = (id, kind, db, name, comment) => {
+    if (!nodes.has(id)) nodes.set(id, { id, label: id, kind, db, name, comment: (comment || '').trim() });
     return nodes.get(id);
   };
-  // external (non-CH dictionary source) leaf
+  // external (non-CH dictionary source) leaf — no comment concept, but carries
+  // the same '' default as every other node so all node objects share one shape.
   const external = (label) => {
     const id = 'ext:' + label;
-    if (!nodes.has(id)) nodes.set(id, { id, label, kind: 'external', db: '', name: label });
+    if (!nodes.has(id)) nodes.set(id, { id, label, kind: 'external', db: '', name: label, comment: '' });
     return id;
   };
 
@@ -129,7 +134,7 @@ export function buildSchemaGraph(rows, focus) {
       const uuid = t.name.replace(/^\.inner(_id)?\./, '');
       innerByUuid.set(uuid, id);
     }
-    node(id, objectKind(t.engine), t.database, t.name);
+    node(id, objectKind(t.engine), t.database, t.name, t.comment);
   }
   // friendlier labels for inner storage tables
   for (const id of innerByUuid.values()) {

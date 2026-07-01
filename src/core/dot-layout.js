@@ -24,10 +24,11 @@ export function nodeWidth(label) {
 // cards pre-compute w/h from their content via cardSize); otherwise fall back to
 // the label-based width + fixed height (pipeline + inline schema boxes).
 const sizeOf = (n) => ({ width: n.w != null ? n.w : nodeWidth(n.label), height: n.h != null ? n.h : NODE_H });
-// `kind`/`db`/`name`/`external` (node) and `label` (edge) pass through for the
-// schema graph's colouring, external-dimming + click-to-SHOW-CREATE (so the UI
-// need not re-split the id or keep a side-channel for these).
-const carry = (n) => ({ id: n.id, label: n.label, kind: n.kind, db: n.db, name: n.name, external: n.external });
+// `kind`/`db`/`name`/`external`/`comment` (node) and `label` (edge) pass through
+// for the schema graph's colouring, external-dimming, click-to-SHOW-CREATE, and
+// hover-tooltip comment (so the UI need not re-split the id or keep a
+// side-channel for these).
+const carry = (n) => ({ id: n.id, label: n.label, kind: n.kind, db: n.db, name: n.name, external: n.external, comment: n.comment });
 
 /**
  * Lay out a graph with dagre. Generic (pipeline + schema lineage): every node is

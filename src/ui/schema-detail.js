@@ -1,18 +1,37 @@
 // The node detail pane for the fullscreen schema graph: a resizable strip docked
 // at the bottom of the overlay panel, showing a clicked object's full columns
-// (with key-role flags + compression sizes), per-partition part/row/byte sums, and
-// its DDL. Pure DOM over the app controller; the data is fetched by
-// app.actions.openNodeDetail (ch.loadTableDetail). Opening the pane also rings the
-// clicked card in the graph so it's clear which object the pane describes.
+// (with key-role flags, comments + compression), per-partition part/row/byte
+// sums, the table's own comment (next to the kind badge), and its DDL. Pure DOM
+// over the app controller; the data is fetched by app.actions.openNodeDetail
+// (ch.loadTableDetail). Opening the pane also rings the clicked card in the
+// graph so it's clear which object the pane describes.
 
 import { h, s, withDocument, zoomScale } from './dom.js';
 import { Icon } from './icons.js';
 import { loadingPlaceholder } from './placeholder.js';
-import { clamp, formatRows, formatBytes, qualifyIdent } from '../core/format.js';
+import { clamp, formatRows, formatBytes, formatCompressionRatio, qualifyIdent, truncate } from '../core/format.js';
 import { columnRoles } from '../core/schema-cards.js';
 
 const MIN_H = 90; // smallest pane height; max is panel height - this margin
 const TOP_MARGIN = 100;
+const MAX_HEAD_COMMENT = 120; // table's own comment, next to the kind badge — the header row has ~1.5x the room MAX_COL_COMMENT does
+const MAX_COL_COMMENT = 80; // per-column comment — 2x the original 40, more room to read without opening DDL
+
+// A capped `<td>` for a column's comment — always rendered (even empty) so every
+// row in the columns table keeps the same cell count. The full text always lands
+// in `title` (native hover tooltip) so truncation never actually loses information.
+const commentCell = (text) => {
+  const t = (text || '').trim();
+  return t ? h('td', { class: 'schema-detail-comment', title: t }, truncate(t, MAX_COL_COMMENT)) : h('td');
+};
+
+// The table's own comment, next to the kind badge in the pane header — omitted
+// entirely (not just empty) when there is none, so the flex row's gap doesn't
+// reserve space for nothing.
+const headComment = (text) => {
+  const t = (text || '').trim();
+  return t ? h('span', { class: 'schema-detail-comment', title: t }, truncate(t, MAX_HEAD_COMMENT)) : null;
+};
 
 /**
  * Mount (or replace) the detail pane for `node` inside the live fullscreen overlay,
@@ -92,12 +111,12 @@ function buildDetailPane(node, detail, panel) {
 
     const colsTable = h('table', { class: 'schema-detail-cols' },
       h('thead', null, h('tr', null,
-        h('th', null, 'column'), h('th', null, 'type'), h('th', null, 'codec'),
-        h('th', { class: 'num' }, 'compressed'), h('th', { class: 'num' }, 'uncompressed'), h('th', null, 'key'))),
+        h('th', null, 'column'), h('th', null, 'type'), h('th', null, 'codec'), h('th', null, 'comment'),
+        h('th', { class: 'num' }, 'compressed'), h('th', { class: 'num', title: '% of the uncompressed size remaining on disk' }, 'size %'), h('th', null, 'key'))),
       h('tbody', null, ...cols.map((c) => h('tr', null,
-        h('td', null, c.name), h('td', null, c.type), h('td', null, c.codec || ''),
+        h('td', null, c.name), h('td', null, c.type), h('td', null, c.codec || ''), commentCell(c.comment),
         h('td', { class: 'num' }, formatBytes(c.compressed)),
-        h('td', { class: 'num' }, formatBytes(c.uncompressed)),
+        h('td', { class: 'num' }, formatCompressionRatio(c.compressed, c.uncompressed)),
         h('td', { class: 'schema-detail-roles' }, columnRoles(c).join(' '))))));
 
     const partsSection = parts.length
@@ -126,7 +145,8 @@ function buildDetailPane(node, detail, panel) {
     h('button', { class: 'schema-detail-close', title: 'Close', onclick: () => { pane.remove(); clearSchemaSelection(doc); } }, Icon.close()),
     h('div', { class: 'schema-detail-body' },
       h('div', { class: 'schema-detail-head' },
-        h('b', null, ident), h('span', { class: 'schema-detail-kind' }, node.kind || 'table')),
+        h('b', null, ident), h('span', { class: 'schema-detail-kind' }, node.kind || 'table'),
+        headComment(detail.comment)),
       body));
   panel.appendChild(pane);
 

@@ -54,6 +54,17 @@ describe('buildCardModel', () => {
     expect(leaf.cols).toEqual([]);
     expect(leaf.overflow).toBe(0);
     expect(leaf.skipLine).toBe('');
+    expect(leaf.comment).toBe('');
+  });
+  it('trims the table comment, untruncated (it\'s a hover-only tooltip on the card, never a drawn row)', () => {
+    const m = buildCardModel({ label: 'db.t' }, { comment: '  raw events, ingested by the OTel collector  ' });
+    expect(m.comment).toBe('raw events, ingested by the OTel collector');
+    const long = buildCardModel({ label: 'db.t' }, { comment: 'x'.repeat(200) });
+    expect(long.comment).toHaveLength(200); // no cap — nothing renders it inline
+  });
+  it('has no comment when the table row carries none', () => {
+    expect(buildCardModel({ label: 'db.t' }, {}).comment).toBe('');
+    expect(buildCardModel({ label: 'db.t' }, { comment: '   ' }).comment).toBe('');
   });
   it('falls back through label → id → "" for the title, and kind → "table" for the engine', () => {
     expect(buildCardModel({ label: 'a.b' }).title).toBe('a.b');
@@ -93,6 +104,11 @@ describe('cardSize', () => {
   it('honors a wide overflow / skip line in the width', () => {
     const m = { title: 't', summary: 's', cols: [], overflow: 999, skipLine: 'idx: ' + 'z'.repeat(60) + ' (minmax)' };
     expect(cardSize(m).w).toBeGreaterThan(CARD.MIN_W);
+  });
+  it('a comment never affects height or width — it\'s a hover-only tooltip, not a row', () => {
+    const base = { title: 't', summary: 's', comment: '', cols: [], overflow: 0, skipLine: '' };
+    const withComment = { ...base, comment: 'a table comment ' + 'z'.repeat(200) };
+    expect(cardSize(withComment, { rowH: 10, headerH: 20 })).toEqual(cardSize(base, { rowH: 10, headerH: 20 }));
   });
 });
 

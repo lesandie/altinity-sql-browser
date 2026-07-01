@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  clamp, formatRows, formatBytes, timeAgo, sqlString, quoteIdent, qualifyIdent, inferQueryName, isNumericType, shortVersion, supportsExplainPretty, userShortName, withStatementBreak, detectSqlFormat, isSchemaMutatingSql, toSubquery, prepareExportSql,
+  clamp, formatRows, formatBytes, timeAgo, sqlString, quoteIdent, qualifyIdent, inferQueryName, isNumericType, shortVersion, supportsExplainPretty, userShortName, withStatementBreak, detectSqlFormat, isSchemaMutatingSql, toSubquery, prepareExportSql, truncate, formatCompressionRatio,
 } from '../../src/core/format.js';
 
 describe('clamp', () => {
@@ -40,6 +40,47 @@ describe('formatBytes', () => {
     expect(formatBytes(5 * 1024 ** 2)).toBe('5.0 MB');
     expect(formatBytes(3 * 1024 ** 3)).toBe('3.00 GB');
     expect(formatBytes(2 * 1024 ** 4)).toBe('2.00 TB');
+  });
+});
+
+describe('truncate', () => {
+  it('passes short strings through unchanged', () => {
+    expect(truncate('hello', 10)).toBe('hello');
+    expect(truncate('', 10)).toBe('');
+  });
+  it('cuts long strings to exactly max chars, ending in an ellipsis', () => {
+    const out = truncate('a very long comment that overflows', 10);
+    expect(out).toHaveLength(10);
+    expect(out.endsWith('…')).toBe(true);
+    expect(out).toBe('a very lo…');
+  });
+  it('treats null/undefined as empty', () => {
+    expect(truncate(null, 5)).toBe('');
+    expect(truncate(undefined, 5)).toBe('');
+  });
+  it('never returns a string longer than max, even for max <= 0', () => {
+    expect(truncate('abc', 0)).toBe('…');
+    expect(truncate('abc', 0)).toHaveLength(1);
+    expect(truncate('abc', 1)).toBe('…');
+  });
+});
+
+describe('formatCompressionRatio', () => {
+  it('computes the percentage of the original size left after compression', () => {
+    expect(formatCompressionRatio(25, 100)).toBe('25%');
+    expect(formatCompressionRatio(100, 100)).toBe('100%');
+  });
+  it('returns "—" when uncompressed is 0/null/NaN', () => {
+    expect(formatCompressionRatio(10, 0)).toBe('—');
+    expect(formatCompressionRatio(10, null)).toBe('—');
+    expect(formatCompressionRatio(10, undefined)).toBe('—');
+  });
+  it('returns "—" when compressed is not a number', () => {
+    expect(formatCompressionRatio('x', 100)).toBe('—');
+    expect(formatCompressionRatio(null, 100)).toBe('—');
+  });
+  it('can exceed 100% when compression overhead outweighs a tiny column\'s raw size', () => {
+    expect(formatCompressionRatio(120, 100)).toBe('120%');
   });
 });
 
@@ -197,7 +238,7 @@ describe('inferQueryName', () => {
     const long = 'SELECT ' + 'x'.repeat(80);
     const name = inferQueryName(long);
     expect(name.endsWith('…')).toBe(true);
-    expect(name.length).toBe(46);
+    expect(name.length).toBe(48);
   });
 });
 

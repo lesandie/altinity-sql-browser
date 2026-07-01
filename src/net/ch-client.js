@@ -152,7 +152,7 @@ export async function loadSchemaLineage(ctx, focus) {
   const db = (focus && focus.db) || '';
   const cols = 'database, name, engine, engine_full, create_table_query, as_select, '
     + 'toString(uuid) AS uuid, dependencies_database, dependencies_table, '
-    + 'loading_dependencies_database, loading_dependencies_table, '
+    + 'loading_dependencies_database, loading_dependencies_table, comment, '
     // Card metadata (ignored by the inline graph; used by the rich fullscreen cards).
     + 'toUInt64(ifNull(total_rows, 0)) AS total_rows, toUInt64(ifNull(total_bytes, 0)) AS total_bytes, '
     + 'partition_key, sorting_key, primary_key, sampling_key';
@@ -259,17 +259,18 @@ export async function loadLineageTransitive(ctx, focus, opts = {}) {
 }
 
 /**
- * Per-table detail for the node detail pane: full columns (with key-role flags +
- * compression sizes), per-partition part/row/byte sums, and the DDL. All reads are
- * best-effort via tryQueryData (a denied/missing system table degrades to empty,
- * never an error). Returns `{ columns, partitions, ddl }`.
+ * Per-table detail for the node detail pane: full columns (with key-role flags,
+ * per-column comments + compression sizes), per-partition part/row/byte sums, the
+ * table's own comment, and the DDL. All reads are best-effort via tryQueryData (a
+ * denied/missing system table degrades to empty, never an error). Returns
+ * `{ columns, partitions, ddl, comment }`.
  */
 export async function loadTableDetail(ctx, db, table) {
   const byCol = 'database = ' + sqlString(db) + ' AND table = ' + sqlString(table);
   const byName = 'database = ' + sqlString(db) + ' AND name = ' + sqlString(table);
-  const [columns, partitions, ddlRows] = await Promise.all([
+  const [columns, partitions, tableRows] = await Promise.all([
     tryQueryData(ctx,
-      'SELECT name, type, compression_codec AS codec, '
+      'SELECT name, type, compression_codec AS codec, comment, '
       + 'is_in_partition_key, is_in_sorting_key, is_in_primary_key, is_in_sampling_key, '
       + 'toUInt64(data_compressed_bytes) AS compressed, toUInt64(data_uncompressed_bytes) AS uncompressed, '
       + 'toUInt64(marks_bytes) AS marks, position '
@@ -277,12 +278,13 @@ export async function loadTableDetail(ctx, db, table) {
     tryQueryData(ctx,
       'SELECT partition, count() AS parts, sum(rows) AS rows, sum(bytes_on_disk) AS bytes '
       + 'FROM system.parts WHERE ' + byCol + ' AND active GROUP BY partition ORDER BY partition FORMAT JSON'),
-    tryQueryData(ctx, 'SELECT create_table_query AS ddl FROM system.tables WHERE ' + byName + ' FORMAT JSON'),
+    tryQueryData(ctx, 'SELECT create_table_query AS ddl, comment FROM system.tables WHERE ' + byName + ' FORMAT JSON'),
   ]);
   return {
     columns: columns || [],
     partitions: partitions || [],
-    ddl: (ddlRows && ddlRows[0] && ddlRows[0].ddl) || '',
+    ddl: (tableRows && tableRows[0] && tableRows[0].ddl) || '',
+    comment: (tableRows && tableRows[0] && tableRows[0].comment) || '',
   };
 }
 

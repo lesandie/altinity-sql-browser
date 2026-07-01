@@ -184,4 +184,53 @@ describe('openDetailPane', () => {
   it('returns null when no overlay is open', () => {
     expect(openDetailPane(APP(), NODE, DETAIL)).toBeNull();
   });
+
+  it('shows the table comment next to the kind badge, and each column\'s comment + % of original size remaining', () => {
+    mountPanel();
+    const detail = {
+      ...DETAIL,
+      comment: 'raw ingest table',
+      columns: [
+        { name: 'id', type: 'UInt64', comment: 'the primary key', is_in_primary_key: 1, compressed: 25, uncompressed: 100 },
+        { name: 'v', type: 'String', compressed: 50, uncompressed: 100 }, // no comment
+      ],
+    };
+    const pane = openDetailPane(APP(), NODE, detail);
+    expect(pane.querySelector('.schema-detail-head .schema-detail-comment').textContent).toBe('raw ingest table');
+    const commentCells = [...pane.querySelectorAll('.schema-detail-cols .schema-detail-comment')];
+    expect(commentCells).toHaveLength(1); // only the commented column gets the class
+    expect(commentCells[0].textContent).toBe('the primary key');
+    expect(commentCells[0].getAttribute('title')).toBe('the primary key');
+    // "size %" is how much of the ORIGINAL (uncompressed) size is left, not how much was saved
+    const ratioCells = [...pane.querySelectorAll('.schema-detail-cols td.num')].filter((td) => td.textContent.endsWith('%'));
+    expect(ratioCells.map((td) => td.textContent)).toEqual(['25%', '50%']);
+  });
+
+  it('omits the header comment span entirely when the table has none (no stray flex gap)', () => {
+    mountPanel();
+    const pane = openDetailPane(APP(), NODE, DETAIL); // DETAIL carries no `comment`
+    expect(pane.querySelector('.schema-detail-head .schema-detail-comment')).toBeNull();
+  });
+
+  it('renders an empty (but present) comment cell for a column with none, and caps a long comment with a full-text tooltip', () => {
+    mountPanel();
+    const longComment = 'a '.repeat(60).trim(); // well over MAX_COL_COMMENT
+    const detail = {
+      ...DETAIL,
+      columns: [
+        { name: 'v', type: 'String', comment: longComment, compressed: 50, uncompressed: 100 },
+        { name: 'w', type: 'String', compressed: 50, uncompressed: 100 }, // no comment at all
+      ],
+    };
+    const pane = openDetailPane(APP(), NODE, detail);
+    const cell = pane.querySelector('.schema-detail-cols .schema-detail-comment');
+    expect(cell.textContent.length).toBeLessThan(longComment.length);
+    expect(cell.textContent.endsWith('…')).toBe(true);
+    expect(cell.getAttribute('title')).toBe(longComment); // full text always on hover
+    // every row still gets a <td> for the comment column, even with nothing to show
+    const rows = [...pane.querySelectorAll('.schema-detail-cols tbody tr')];
+    const emptyCommentCell = rows[1].children[3]; // column, type, codec, comment
+    expect(emptyCommentCell.textContent).toBe('');
+    expect(emptyCommentCell.classList.contains('schema-detail-comment')).toBe(false);
+  });
 });

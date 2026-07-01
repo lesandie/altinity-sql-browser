@@ -170,7 +170,17 @@ function renderGraphSvg(g, opts = {}) {
       const fire = (e) => { e.stopPropagation(); opts.onNode(n, e); };
       rect.addEventListener('click', fire); text.addEventListener('click', fire);
     }
-    svg.appendChild(rect); svg.appendChild(text);
+    // Wrap in a <g> so a single <title> child (a native browser tooltip on hover
+    // over either the box or its label) covers both — only when opts.nodeTitle
+    // supplies text (the schema graph's table comment; the pipeline graph passes
+    // no nodeTitle at all, so its plain boxes stay tooltip-free).
+    const title = opts.nodeTitle && opts.nodeTitle(n);
+    if (title) {
+      const group = s('g', {}, s('title', {}, title), rect, text);
+      svg.appendChild(group);
+    } else {
+      svg.appendChild(rect); svg.appendChild(text);
+    }
   }
   return { svg, width: g.width, height: g.height, nodeCount: g.nodes.length };
 }
@@ -186,17 +196,22 @@ export function buildSchemaSvg(graph, dagre, onNode) {
     nodeClass: (n) => 'eg-node eg-node--' + (n.kind || 'table'),
     edgeClass: (e) => 'eg-edge eg-edge--' + (e.kind || 'feeds'),
     edgeLabel: (e) => e.kind,
+    nodeTitle: (n) => n.comment || null,
     onNode,
   });
 }
 
 // Draw one node as a rich card: a kind-coloured background rect with a title +
-// engine/rows/bytes summary header, then a row per column (with key-role badges),
-// an overflow row, and a skip-index row — all placed at the deterministic offsets
-// cardSize() used to size the node, so no DOM measurement is needed. `model` is
-// always supplied by renderRichGraphSvg (a header-only model for a card-less node).
+// engine/rows/bytes summary header, then a row per column (with key-role
+// badges), an overflow row, and a skip-index row — all placed at the
+// deterministic offsets cardSize() used to size the node, so no DOM
+// measurement is needed. `model` is always supplied by renderRichGraphSvg (a
+// header-only model for a card-less node). A table comment (when there is
+// one) is a hover-only <title> on the whole card — same as the plain inline
+// graph's nodeTitle — never a drawn row, so it can't affect card layout.
 function renderCardNode(n, model, nodeClass, onNode) {
   const g = s('g', { class: 'eg-card', 'data-node-id': n.id });
+  if (model.comment) g.appendChild(s('title', {}, model.comment));
   const rect = s('rect', { class: nodeClass(n), x: n.x, y: n.y, width: n.w, height: n.h, rx: '5' });
   g.appendChild(rect);
   const left = n.x + CARD.PAD_X;

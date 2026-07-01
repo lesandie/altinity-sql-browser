@@ -862,6 +862,11 @@ body.detached-tab .graph-overlay-panel {
 .schema-detail-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
 .schema-detail-head b { font-size: 13px; word-break: break-all; }
 .schema-detail-kind { font-size: 11px; color: var(--fg-faint); }
+.schema-detail-head .schema-detail-comment {
+  font-size: 11px; color: var(--fg-mute); font-style: italic;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
+.schema-detail-cols .schema-detail-comment { color: var(--fg-mute); font-style: italic; }
 .schema-detail h4 {
   font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
   color: var(--fg-faint); margin: 12px 0 6px;

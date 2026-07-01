@@ -4,7 +4,7 @@
 // pure so the geometry (which dagre needs *before* layout) is fully testable
 // under happy-dom, which has no layout engine to measure rendered text.
 
-import { formatRows, formatBytes } from './format.js';
+import { formatRows, formatBytes, truncate } from './format.js';
 
 // Card geometry — the single source of truth shared by cardSize() (which feeds
 // dagre) and the SVG renderer (which places text at these offsets). HEADER_H
@@ -29,10 +29,7 @@ export const CARD = {
 
 // Clamp an over-long column type for the card (the full type stays in the detail
 // pane). Keeps a giant inline Enum8('a'=1, …) from stretching the layout.
-const clampType = (t) => {
-  const s = String(t == null ? '' : t);
-  return s.length > CARD.MAX_TYPE ? s.slice(0, CARD.MAX_TYPE - 1) + '…' : s;
-};
+const clampType = (t) => truncate(t, CARD.MAX_TYPE);
 
 // A ClickHouse UInt8 flag is 1/0, but JSON vs JSONStrings formats deliver it as
 // a number or a string — treat both (and a real boolean) uniformly.
@@ -52,15 +49,19 @@ export function columnRoles(col) {
 /**
  * Build the display model for one node's card from its lineage row + columns +
  * skip-indices. `node` carries `{ label, kind }`; `tableRow` is the system.tables
- * row (engine/total_rows/total_bytes), `columns` the system.columns rows, and
- * `skipIndices` the system.data_skipping_indices rows — any may be missing (an
- * external/dictionary-source leaf has none), degrading to a header-only card.
+ * row (engine/total_rows/total_bytes/comment), `columns` the system.columns rows,
+ * and `skipIndices` the system.data_skipping_indices rows — any may be missing
+ * (an external/dictionary-source leaf has none), degrading to a header-only card.
+ * `comment` (trimmed, untruncated) isn't drawn as its own row — like the plain
+ * inline graph, it's a hover-only tooltip on the whole card, so it never affects
+ * the card's own layout.
  */
 export function buildCardModel(node, tableRow, columns, skipIndices) {
   const n = node || {};
   const tr = tableRow || {};
   const engine = tr.engine || n.kind || 'table';
   const summary = engine + ' · ' + formatRows(tr.total_rows) + ' rows · ' + formatBytes(tr.total_bytes);
+  const comment = (tr.comment || '').trim();
   const allCols = columns || [];
   const cols = allCols.slice(0, CARD.MAX_COLS).map((c) => ({
     name: c.name, type: clampType(c.type), roles: columnRoles(c),
@@ -72,17 +73,19 @@ export function buildCardModel(node, tableRow, columns, skipIndices) {
     ? 'idx: ' + idx.slice(0, CARD.MAX_IDX).map((i) => i.name + ' (' + (i.type || '') + ')').join(', ')
       + (idxOverflow ? ', +' + idxOverflow + ' more' : '')
     : '';
-  return { title: n.label || n.id || '', kind: n.kind || 'table', summary, cols, overflow, skipLine };
+  return { title: n.label || n.id || '', kind: n.kind || 'table', summary, comment, cols, overflow, skipLine };
 }
 
 /**
  * The pixel size {w,h} of a card, computed purely from its model so dagre can lay
- * it out. Height = header + one row per shown column (+ overflow + skip rows);
- * width = the widest text line (monospace estimate) plus side padding, floored at
- * MIN_W. `opts` overrides the CARD constants (used by tests).
+ * it out. Height = header + one row per shown column (+ overflow + skip rows) —
+ * the comment is a hover-only tooltip on the whole card, not a row, so it never
+ * affects height or width. Width = the widest text line (monospace estimate)
+ * plus side padding, floored at MIN_W. `opts` overrides the CARD constants
+ * (used by tests).
  */
 export function cardSize(model, opts = {}) {
-  const m = model || { title: '', summary: '', cols: [], overflow: 0, skipLine: '' };
+  const m = model || { title: '', summary: '', comment: '', cols: [], overflow: 0, skipLine: '' };
   const ROW_H = opts.rowH != null ? opts.rowH : CARD.ROW_H;
   const HEADER_H = opts.headerH != null ? opts.headerH : CARD.HEADER_H;
   const CHAR_W = opts.charW != null ? opts.charW : CARD.CHAR_W;

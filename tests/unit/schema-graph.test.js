@@ -302,6 +302,22 @@ describe('buildSchemaGraph', () => {
     expect(tbl.db).toBe('my.db');   // not 'my'
     expect(tbl.name).toBe('tbl');   // not 'db.tbl'
   });
+
+  it("attaches a table's own comment to its node", () => {
+    const rows = { tables: [T('lin', 'dim', 'MergeTree', { comment: 'dimension table' })], dictionaries: [] };
+    const g = buildSchemaGraph(rows, { kind: 'db', db: 'lin' });
+    expect(g.nodes.find((n) => n.id === 'lin.dim').comment).toBe('dimension table');
+  });
+
+  it("defaults comment to '' for a node only ever reached as a dependency reference (never its own row)", () => {
+    const rows = {
+      tables: [T('lin', 'events', 'MergeTree', { dependencies_database: ['lin'], dependencies_table: ['events_mv'] })],
+      dictionaries: [],
+    };
+    const g = buildSchemaGraph(rows, { kind: 'db', db: 'lin' });
+    expect(g.nodes.find((n) => n.id === 'lin.events').comment).toBe('');
+    expect(g.nodes.find((n) => n.id === 'lin.events_mv').comment).toBe('');
+  });
 });
 
 describe('externalDbs', () => {
