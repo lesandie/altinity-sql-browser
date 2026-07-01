@@ -16,6 +16,10 @@ export class FakeChart {
   // Mirrors Chart.js's single pointer-event entry point: results.js wraps this
   // to undo the page CSS zoom. Records the (corrected) event for assertions.
   _eventHandler(e, replay) { this.lastEvent = e; this.lastReplay = replay; }
+  // Real Chart.js's resize()/update() — results.js calls these explicitly to
+  // work around cross-window responsive-sizing (see renderChart's comment).
+  resize(w, h) { this.lastResize = [w, h]; }
+  update(mode) { this.lastUpdateMode = mode; }
   destroy() { this.destroyed = true; }
 }
 
@@ -69,6 +73,7 @@ export function makeApp(over = {}) {
       connect: vi.fn(),
       share: vi.fn(),
       copyResult: vi.fn(),
+      copySnapshot: vi.fn(),
       exportEntry: vi.fn(),
       exportDirect: vi.fn(),
       cancelExport: vi.fn(),

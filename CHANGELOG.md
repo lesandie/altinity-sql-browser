@@ -97,6 +97,28 @@ auto-generated per-PR notes; this file is the curated, human-readable history.
   `SESSION_IS_LOCKED`) — a partially-written file shouldn't be silently
   re-attempted. A script with no result-producing statements shows a toast
   instead of prompting for a folder.
+- **Detached-tab primitive + Data Pane Expand** (#100): extracted the schema
+  graph's real-tab/overlay-fallback logic into a shared `openInDetachedTab`
+  helper (`src/ui/detached-view.js`), now used by the schema graph, the
+  EXPLAIN pipeline graph, and a new **Expand** button next to Copy in the
+  results toolbar. Expand opens a **snapshot** of the current grid — sortable,
+  resizable, with its own Copy, and the full **Table/JSON/Chart** switcher
+  (same as the inline pane, but scoped locally: switching view/chart config
+  there never touches the live tab's own state) — in a real browser tab,
+  falling back to the in-app overlay when a pop-up can't be opened. It
+  doesn't live-update if the query is re-run afterward. Pipeline's Expand now
+  also opens in a real tab (previously overlay-only); the schema graph's
+  existing tab/overlay behavior is unchanged. `app.state.detachedView` (a
+  count) tracks how many detached views are open at once. Along the way,
+  fixed Chart.js rendering nothing (a 0×0 canvas, then laid-out axes with no
+  visible bars/points) when its canvas lives in a detached tab's own
+  document — Chart.js's responsive-sizing and resize-triggered relayout read
+  through APIs bound to the window its own module runs in, always the main
+  window; `renderChart` now forces an explicit resize + `'resize'`-mode
+  update off the canvas's own (realm-agnostic) geometry once it's attached.
+  Also mirrors the app's favicon into every detached tab (a `faviconHref`
+  seam, same pattern as the existing `stylesText` one) — `about:blank` ships
+  neither, so a real tab previously showed the browser's generic icon.
 
 ### Changed
 - State reactivity now uses `@preact/signals-core` (the third bundled runtime

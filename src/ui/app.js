@@ -63,11 +63,14 @@ export function createApp(env = {}) {
     // Pipeline-graph layout seam: dagre (injected like Chart). The DOT parser and
     // SVG drawer are ours; dagre only computes node positions + edge bend points.
     Dagre: env.Dagre || win.dagre,
-    // The schema graph opens in a real browser tab driven by this window. Both are
-    // injected seams: openWindow so tests can stub window.open, stylesText so the
-    // child tab can inline the page's CSS (about:blank ships none of it).
+    // The schema graph opens in a real browser tab driven by this window. All
+    // three are injected seams: openWindow so tests can stub window.open,
+    // stylesText/faviconHref so the child tab can inline the page's CSS and
+    // favicon (about:blank ships neither).
     openWindow: env.openWindow || ((...a) => win.open(...a)),
     stylesText: env.stylesText || (doc.querySelector('style') ? doc.querySelector('style').textContent : ''),
+    faviconHref: env.faviconHref
+      || (doc.querySelector('link[rel~="icon"]') ? doc.querySelector('link[rel~="icon"]').getAttribute('href') : ''),
     // Streaming Export (issue #87) needs the File System Access API and a
     // secure context; both are injected seams (like openWindow) so tests can
     // stub them without a real browser. Fixed for the session (browser +
@@ -982,19 +985,27 @@ export function createApp(env = {}) {
     // A script result is a per-statement grid, not a single exportable table.
     return r && !r.error && !r.script && (r.rawText != null || r.rows.length > 0) ? r : null;
   }
-  function copyResult() {
-    const r = exportableResult();
-    if (!r) { flashToast('Nothing to copy', { document: doc }); return; }
+  // `targetDoc` defaults to the main document, but a detached view (issue
+  // #100's Data Pane) passes its own — the Clipboard API ties writeText's
+  // permission to the *focused* document, so resolving navigator off the main
+  // window unconditionally would risk a NotAllowedError when the click came
+  // from a different (same-origin) top-level browsing context. `env.navigator`
+  // still wins first so tests can inject a stub regardless of which doc they
+  // simulate.
+  function copySnapshot(r, targetDoc) {
+    const d = targetDoc || doc;
+    if (!r) { flashToast('Nothing to copy', { document: d }); return; }
     const text = r.rawText != null ? r.rawText : toTSV(r.columns, r.rows);
-    const clip = (env.navigator || win.navigator || {}).clipboard;
+    const clip = (env.navigator || (d.defaultView || win).navigator || {}).clipboard;
     if (clip && clip.writeText) {
       clip.writeText(text)
-        .then(() => flashToast('Copied to clipboard', { document: doc }))
-        .catch(() => flashToast('Copy failed', { document: doc }));
+        .then(() => flashToast('Copied to clipboard', { document: d }))
+        .catch(() => flashToast('Copy failed', { document: d }));
     } else {
-      flashToast('Copy not supported', { document: doc });
+      flashToast('Copy not supported', { document: d });
     }
   }
+  function copyResult() { copySnapshot(exportableResult(), doc); }
   // --- streaming export (issue #87 single-file / #99 script) --------------
   // Full, uncapped export of a query — never the loaded grid — streamed
   // straight to a user-chosen file. Its own query_id + abort, kept separate
@@ -1417,6 +1428,7 @@ export function createApp(env = {}) {
     connect,
     share,
     copyResult,
+    copySnapshot,
     exportEntry,
     exportDirect,
     cancelExport,
