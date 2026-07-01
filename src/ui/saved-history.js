@@ -104,7 +104,7 @@ function renderSaved(app, list) {
     return;
   }
   for (const q of items) {
-    if (app.editingSavedId === q.id) { list.appendChild(savedEditForm(app, q)); continue; }
+    if (app.state.editingSavedId.value === q.id) { list.appendChild(savedEditForm(app, q)); continue; }
     const star = h('button', {
       class: 'sv-star' + (q.favorite ? ' on' : ''), title: q.favorite ? 'Unfavorite' : 'Favorite',
       onclick: (e) => { e.stopPropagation(); toggleFavorite(state, q.id, app.saveJSON); renderSavedHistory(app); },
@@ -116,7 +116,7 @@ function renderSaved(app, list) {
         h('span', { class: 'name' }, q.name),
         h('button', {
           class: 'sv-act', title: 'Edit name & description',
-          onclick: (e) => { e.stopPropagation(); app.editingSavedId = q.id; renderSavedHistory(app); },
+          onclick: (e) => { e.stopPropagation(); app.state.editingSavedId.value = q.id; renderSavedHistory(app); },
         }, Icon.pencil()),
         h('button', {
           class: 'sv-act', title: 'Delete',
@@ -130,7 +130,7 @@ function renderSaved(app, list) {
 
 /**
  * The expanded "edit name & description" form shown in place of a saved row
- * while `app.editingSavedId === q.id`. The Name field commits on Enter, the
+ * while `app.state.editingSavedId.value === q.id`. The Name field commits on Enter, the
  * Description field on ⌘/Ctrl+Enter (plain Enter inserts a newline); Escape or
  * Cancel reverts. Clicks inside the form don't load the query. A `done` guard
  * keeps the re-render teardown from double-firing the commit.
@@ -148,7 +148,7 @@ function savedEditForm(app, q) {
       renameSaved(state, q.id, nameInput.value, descInput.value, app.saveJSON);
       app.actions.rerenderTabs();
     }
-    app.editingSavedId = null;
+    app.state.editingSavedId.value = null;
     renderSavedHistory(app);
   };
   nameInput.addEventListener('keydown', (e) => {

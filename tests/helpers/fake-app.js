@@ -46,7 +46,6 @@ export function makeApp(over = {}) {
     updateSaveBtn: vi.fn(),
     elapsedMs: () => 0,
     now: () => 0,
-    editingSavedId: null,
     showLogin: vi.fn(),
     signOut: vi.fn(),
     loadVersion: vi.fn(),

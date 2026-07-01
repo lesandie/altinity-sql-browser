@@ -85,8 +85,9 @@ export function openFileMenu(app) {
   const sep = () => h('div', { class: 'fm-sep' });
   const empty = list.length === 0;
 
+  const newLibraryItem = item(Icon.plus(), 'New Library', null, () => { close(); newLibraryAction(app); });
   const menu = h('div', { class: 'file-menu' },
-    item(Icon.plus(), 'New Library', null, () => { close(); newLibraryAction(app); }),
+    newLibraryItem,
     sep(),
     h('div', { class: 'fm-section' }, 'Save library'),
     item(Icon.download(), 'Save JSON', '.json', () => { close(); saveJsonAction(app); }),
@@ -113,6 +114,7 @@ export function openFileMenu(app) {
   menu.style.left = a.left + 'px';
   doc.body.appendChild(menu);
   doc.addEventListener('keydown', onKey, true);
+  setTimeout(() => newLibraryItem.focus());
 }
 
 // ── file pickers + JSON read ────────────────────────────────────────────────

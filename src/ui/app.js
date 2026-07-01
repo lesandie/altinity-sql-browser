@@ -382,7 +382,7 @@ export function createApp(env = {}) {
     const b = app.dom.banner;
     if (!b) return;
     const err = app.state.schemaError.value;
-    if (!err || app._bannerDismissedFor === err) {
+    if (!err || app.state.bannerDismissedFor.value === err) {
       b.style.display = 'none';
       return;
     }
@@ -393,7 +393,7 @@ export function createApp(env = {}) {
       h('button', {
         class: 'auth-banner-x',
         title: 'Dismiss',
-        onclick: () => { app._bannerDismissedFor = err; b.style.display = 'none'; },
+        onclick: () => { app.state.bannerDismissedFor.value = err; b.style.display = 'none'; },
       }, '×'),
     );
   }
@@ -1398,11 +1398,13 @@ export function createApp(env = {}) {
   function openUserMenu() {
     if (app.dom.userMenu) return;
     let close;
+    const logoutBtn = h('button', { class: 'um-item danger', onclick: () => { close(); app.signOut(); } }, Icon.logout(), h('span', null, 'Log out'));
     const menu = h('div', { class: 'user-menu' },
       h('div', { class: 'um-id' }, app.email()),
-      h('button', { class: 'um-item danger', onclick: () => { close(); app.signOut(); } }, Icon.logout(), h('span', null, 'Log out')),
+      logoutBtn,
       h('div', { class: 'um-build', title: 'App version / build' }, app.build));
     ({ close } = anchoredPopover(menu, app.dom.userBtn, 'userMenu'));
+    setTimeout(() => logoutBtn.focus());
   }
   app.openUserMenu = openUserMenu;
 

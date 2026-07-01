@@ -89,6 +89,10 @@ export function createState(read = { loadJSON, loadStr }) {
     schemaError: signal(null),
     schemaFilter: signal(''),
     expanded: signal(new Set()),
+    // The last schemaError text the user dismissed from the auth banner
+    // (updateBanner, in app.js) — re-shown only if a *different* error occurs.
+    // Session-only, never persisted.
+    bannerDismissedFor: signal(null),
     serverVersion: null,
     // Run state (signals): `running` flips the Run button + results pane via
     // effects; `resultView` is the active Table/JSON/Chart tab. Via `.value`.
@@ -116,6 +120,9 @@ export function createState(read = { loadJSON, loadStr }) {
     resultSort: { col: null, dir: 'asc' },
     sidePanel: signal(read.loadStr(KEYS.sidePanel, 'saved')),
     savedQueries: read.loadJSON(KEYS.saved, []),
+    // Which saved row (if any) is showing its inline edit form (saved-history.js).
+    // Session-only, never persisted.
+    editingSavedId: signal(null),
     history: read.loadJSON(KEYS.history, []),
     // The saved-query collection treated as a named document ("the Library").
     // Signals: the header title (name + unsaved-changes dot) repaints via an
@@ -127,7 +134,10 @@ export function createState(read = { loadJSON, loadStr }) {
     // Transient search text for the Library/History side panel (session-only,
     // cleared on a tab switch); never persisted.
     libraryFilter: '',
-    shortcutsOpen: false,
+    // Whether the keyboard-shortcuts modal is open (shortcuts.js). Session-only;
+    // a signal for consistency with the rest of the state (no reactive reader
+    // today — shortcuts.js drives its own mount/unmount).
+    shortcutsOpen: signal(false),
   };
 }
 

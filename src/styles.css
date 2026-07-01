@@ -575,7 +575,7 @@ body {
   opacity: 0; pointer-events: none;
   transition: opacity .18s ease;
 }
-.share-toast.show { opacity: 1; }
+.share-toast.show { opacity: 1; pointer-events: auto; cursor: pointer; }
 
 /* ------------ export progress banner (issue #87) ------------ */
 .export-progress {
@@ -1006,6 +1006,7 @@ body.detached-tab .graph-overlay-panel {
 .tree-row.match { background: var(--bg-highlight); }
 .tree-row .chev {
   width: 10px; color: var(--fg-faint); display: flex; flex-shrink: 0;
+  transition: transform .15s;
 }
 .tree-row .icon { display: flex; flex-shrink: 0; }
 .tree-row .label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
