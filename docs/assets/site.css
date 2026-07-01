@@ -139,6 +139,8 @@ section.alt { background: var(--bg-2); border-top: 1px solid var(--border); bord
 }
 .card h3 { font-size: 1.08rem; }
 .card p { color: var(--mute); font-size: .96rem; margin: 0; }
+.card-more { margin: 12px 0 0 !important; font-size: .9rem; }
+.card-more a { font-weight: 600; }
 .card .ic {
   width: 38px; height: 38px; border-radius: 9px; display: grid; place-items: center;
   background: var(--accent-soft); color: var(--accent); margin-bottom: 14px;
