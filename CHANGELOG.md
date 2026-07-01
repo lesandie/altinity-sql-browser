@@ -9,6 +9,8 @@ auto-generated per-PR notes; this file is the curated, human-readable history.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-01
+
 ### Added
 - **Table/column COMMENT display**: a table's `COMMENT` now shows as a native
   hover tooltip on its node — in both the compact inline schema-lineage graph
@@ -317,7 +319,9 @@ auto-generated per-PR notes; this file is the curated, human-readable history.
   ClickHouse — SQL editor, sortable results table + chart view, EXPLAIN pipeline
   graph, and the schema data-flow graph. Built by esbuild into one `dist/sql.html`.
 
-[Unreleased]: https://github.com/Altinity/altinity-sql-browser/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/Altinity/altinity-sql-browser/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/Altinity/altinity-sql-browser/compare/v0.1.5...v0.2.0
+[0.1.5]: https://github.com/Altinity/altinity-sql-browser/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/Altinity/altinity-sql-browser/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/Altinity/altinity-sql-browser/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/Altinity/altinity-sql-browser/compare/v0.1.1...v0.1.2
