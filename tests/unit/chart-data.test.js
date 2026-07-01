@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   chartStripType, chartRole, autoChart, schemaKey, CHART_TYPES, chartFieldOptions,
   chartNumFmt, chartLabel, chartPalette, chartColors, buildChartData, chartJsConfig,
-  cloneChartCfg, chartCfgValid, normalizeChartCfg, unzoomChartEvent,
+  cloneChartCfg, chartCfgValid, normalizeChartCfg, unzoomChartEvent, chartRowCap,
 } from '../../src/core/chart-data.js';
 
 describe('chartStripType', () => {
@@ -198,6 +198,18 @@ describe('chartColors', () => {
   });
 });
 
+describe('chartRowCap', () => {
+  it('returns the per-type cap, falling back to the bar/column default for unknown types', () => {
+    expect(chartRowCap('pie')).toBe(30);
+    expect(chartRowCap('hbar')).toBe(500);
+    expect(chartRowCap('bar')).toBe(1000);
+    expect(chartRowCap('line')).toBe(5000);
+    expect(chartRowCap('area')).toBe(5000);
+    expect(chartRowCap('bogus')).toBe(500);
+    expect(chartRowCap(undefined)).toBe(500);
+  });
+});
+
 describe('buildChartData', () => {
   const cols = [
     { name: 'carrier', type: 'String' },
@@ -227,11 +239,15 @@ describe('buildChartData', () => {
       { label: 'W', data: [30, 20] }, // W has B6(30) and AA(20)
     ]);
   });
-  it('caps at the row cap', () => {
+  it('caps at the row cap for the config type', () => {
+    const bigCols = [{ name: 'c', type: 'String' }, { name: 'n', type: 'UInt64' }];
     const big = Array.from({ length: 600 }, (_, i) => ['c' + i, String(i)]);
-    const out = buildChartData([{ name: 'c', type: 'String' }, { name: 'n', type: 'UInt64' }], big,
-      { type: 'hbar', x: 0, y: [1], series: null });
-    expect(out.labels).toHaveLength(500);
+    const hbar = buildChartData(bigCols, big, { type: 'hbar', x: 0, y: [1], series: null });
+    expect(hbar.labels).toHaveLength(500); // hbar cap
+    const pie = buildChartData(bigCols, big, { type: 'pie', x: 0, y: [1], series: null });
+    expect(pie.labels).toHaveLength(30); // pie's much tighter legibility cap
+    const line = buildChartData(bigCols, big, { type: 'line', x: 0, y: [1], series: null });
+    expect(line.labels).toHaveLength(600); // line cap (5000) exceeds the row count — no truncation
   });
   it('aggregates (sums) rows sharing an X bucket — single-series path', () => {
     // two rows for the same carrier are summed, not last-write-wins

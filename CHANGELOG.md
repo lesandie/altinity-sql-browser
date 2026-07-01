@@ -157,6 +157,12 @@ auto-generated per-PR notes; this file is the curated, human-readable history.
   addendum); the schema slice is the documented imperative exception, converted
   with a *replaced* Set-valued `expanded` signal and reference-replaced column
   loads rather than in-place mutation. This **completes the migration**. (#88, #91)
+- **Chart-type-aware row cap** (#109): the flat 500-row chart cap is now a
+  per-type lookup (`chartRowCap(type)` / `CHART_ROW_CAPS` in
+  `src/core/chart-data.js`) — Pie 30, Bar (horizontal) 500, Column 1000, Line/
+  Area 5000 — matching each chart shape's actual readability ceiling instead
+  of one eyeballed number. Switching chart type re-slices to the new cap and
+  updates the truncation note in lockstep.
 
 ### Fixed
 - A newly created, still-empty database (e.g. `CREATE DATABASE`) never appeared

@@ -8,7 +8,7 @@ import { loadingPlaceholder } from './placeholder.js';
 import { formatRows, formatBytes, isNumericType } from '../core/format.js';
 import { looksLikeHtml, prettyValue } from '../core/cell.js';
 import { sortRows } from '../core/sort.js';
-import { autoChart, schemaKey, chartFieldOptions, chartColors, chartJsConfig, chartCfgValid, normalizeChartCfg, unzoomChartEvent, CHART_ROW_CAP } from '../core/chart-data.js';
+import { autoChart, schemaKey, chartFieldOptions, chartColors, chartJsConfig, chartCfgValid, normalizeChartCfg, unzoomChartEvent, chartRowCap } from '../core/chart-data.js';
 import { EXPLAIN_VIEWS } from '../core/explain.js';
 import { SELECT_ROW_CAP } from '../core/script-result.js';
 import { RESULT_ROW_LIMIT_OPTIONS } from '../state.js';
@@ -971,19 +971,22 @@ export function renderChart(app, r, opts = {}) {
       rerender();
     }));
   }
-  // The chart plots at most CHART_ROW_CAP points; say so when the result is
-  // bigger (the table still shows everything) — no silent truncation.
-  if (r.rows.length > CHART_ROW_CAP) {
+  // The chart plots at most cap points for the current type; say so when the
+  // result is bigger (the table still shows everything) — no silent
+  // truncation. Recomputed on every rerender (the Type select's onChange),
+  // so switching type re-slices and updates the note in lockstep.
+  const cap = chartRowCap(cfg.type);
+  if (r.rows.length > cap) {
     bar.appendChild(h('span', { class: 'chart-cap-note' },
-      'first ' + CHART_ROW_CAP + ' of ' + formatRows(r.rows.length) + ' rows'));
+      'first ' + cap + ' of ' + formatRows(r.rows.length) + ' rows'));
   }
 
   const canvas = h('canvas', null); // via h() so it lands in the right document (detached-tab safe)
   // Plot in result (query) order — independent of the table's sort, which is a
   // global, cross-tab setting; applying it here would reorder the X axis (a
-  // time series would zig-zag) and change which rows the CHART_ROW_CAP keeps,
+  // time series would zig-zag) and change which rows the type's row cap keeps,
   // contradicting the "first N rows" note. It would also sort up to VIS_CAP
-  // rows just to discard all but the first CHART_ROW_CAP.
+  // rows just to discard all but the first `cap`.
   const chart = installChartZoomFix(
     new app.Chart(canvas, chartJsConfig(r.columns, r.rows, cfg, chartColors(app.cssVar))),
     canvas);
