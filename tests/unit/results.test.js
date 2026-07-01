@@ -487,6 +487,75 @@ describe('expandDataPane', () => {
     win.document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     expect(win.document.body.contains(win.document.querySelector('.data-pane-body'))).toBe(true);
   });
+
+  it('has the full Table/JSON/Chart switcher, same as the inline pane, scoped locally', () => {
+    const app = makeApp();
+    const r = chartResult();
+    expandDataPane(app, r);
+    const overlay = document.querySelector('.graph-overlay');
+    const tabLabels = () => [...overlay.querySelectorAll('.result-view-tab')].map((b) => b.textContent);
+    expect(tabLabels()).toEqual(['Table', 'JSON', 'Chart']);
+    expect(overlay.querySelector('.result-view-tab.active').textContent).toBe('Table');
+
+    // JSON
+    click([...overlay.querySelectorAll('.result-view-tab')].find((b) => b.textContent === 'JSON'));
+    expect(overlay.querySelector('.json-view')).not.toBeNull();
+    expect(overlay.querySelector('.result-view-tab.active').textContent).toBe('JSON');
+    expect(overlay.querySelector('.res-table')).toBeNull(); // grid torn down
+
+    // Chart
+    click([...overlay.querySelectorAll('.result-view-tab')].find((b) => b.textContent === 'Chart'));
+    expect(overlay.querySelector('.chart-view canvas')).not.toBeNull();
+    expect(overlay.querySelector('.result-view-tab.active').textContent).toBe('Chart');
+
+    // switching away destroys the chart instance (no leaked canvas/observers)
+    const chartBefore = overlay.querySelector('canvas');
+    click([...overlay.querySelectorAll('.result-view-tab')].find((b) => b.textContent === 'Table'));
+    expect(overlay.querySelector('canvas')).toBeNull();
+    expect(overlay.querySelector('.res-table')).not.toBeNull();
+    expect(chartBefore).not.toBeNull(); // sanity: we did have a canvas to lose
+  });
+
+  it("the snapshot's chart config is local — switching it never touches the live tab's own chartCfg/chartKey", () => {
+    const app = makeApp();
+    const r = chartResult();
+    expandDataPane(app, r);
+    const overlay = document.querySelector('.graph-overlay');
+    click([...overlay.querySelectorAll('.result-view-tab')].find((b) => b.textContent === 'Chart'));
+    const typeSelect = overlay.querySelector('.chart-config select');
+    typeSelect.value = 'pie';
+    typeSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(overlay.querySelector('.chart-view canvas')).not.toBeNull(); // re-rendered locally, no throw
+    expect(app.activeTab().chartCfg).toBeNull(); // the live tab's own config is untouched
+    expect(app.chart).toBeNull(); // the snapshot's chart never occupies the shared app.chart slot
+  });
+
+  it('running a new query in the main tab does not blank the snapshot\'s Chart view', () => {
+    const app = makeApp();
+    const r = chartResult();
+    expandDataPane(app, r);
+    const overlay = document.querySelector('.graph-overlay');
+    app.state.running.value = true; // a different, unrelated query starts in the main window
+    click([...overlay.querySelectorAll('.result-view-tab')].find((b) => b.textContent === 'Chart'));
+    expect(overlay.querySelector('.chart-view canvas')).not.toBeNull(); // not the "renders when complete" placeholder
+    expect(overlay.textContent).not.toContain('renders when the query completes');
+  });
+
+  it('closing the overlay while on Chart view destroys the chart instance (teardown)', () => {
+    const app = makeApp();
+    const instances = [];
+    const RealChart = app.Chart;
+    app.Chart = class extends RealChart { constructor(...args) { super(...args); instances.push(this); } };
+    const r = chartResult();
+    expandDataPane(app, r);
+    const overlay = document.querySelector('.graph-overlay');
+    click([...overlay.querySelectorAll('.result-view-tab')].find((b) => b.textContent === 'Chart'));
+    expect(instances).toHaveLength(1);
+    expect(instances[0].destroyed).toBe(false);
+    overlay.querySelector('.graph-overlay-close').dispatchEvent(new Event('click', { bubbles: true }));
+    expect(document.querySelector('.graph-overlay')).toBeNull();
+    expect(instances[0].destroyed).toBe(true);
+  });
 });
 
 describe('renderJson', () => {
@@ -659,6 +728,25 @@ describe('renderChart', () => {
     change(fieldSel(app.dom.resultsRegion, 'X'), '1'); // X now equals series → series cleared
     expect(app.activeTab().chartCfg.x).toBe(1);
     expect(app.activeTab().chartCfg.series).toBeNull();
+  });
+  it("forces an explicit resize + 'resize'-mode update once attached, working around Chart.js's cross-window responsive sizing", async () => {
+    const app = appWithResult(chartResult(), { resultView: 'chart' });
+    renderResults(app);
+    const canvas = app.dom.resultsRegion.querySelector('canvas');
+    const wrap = canvas.parentElement;
+    Object.defineProperty(wrap, 'offsetWidth', { value: 640, configurable: true });
+    Object.defineProperty(wrap, 'offsetHeight', { value: 320, configurable: true });
+    await new Promise((resolve) => window.requestAnimationFrame(resolve)); // let the scheduled rAF run
+    expect(app.chart.lastResize).toEqual([640, 320]);
+    expect(app.chart.lastUpdateMode).toBe('resize');
+  });
+  it('skips the forced resize when the container never gets a real size (e.g. torn down before the rAF fires)', async () => {
+    const app = appWithResult(chartResult(), { resultView: 'chart' });
+    renderResults(app);
+    const chart = app.chart;
+    await new Promise((resolve) => window.requestAnimationFrame(resolve)); // offsetWidth/Height are 0 in happy-dom by default
+    expect(chart.lastResize).toBeUndefined();
+    expect(chart.lastUpdateMode).toBeUndefined();
   });
 });
 
