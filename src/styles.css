@@ -388,7 +388,11 @@ body {
 .fm-dialog-confirm:hover { filter: brightness(1.08); }
 
 /* ------------ main row ------------ */
-.main-row { flex: 1; display: flex; min-height: 0; overflow: hidden; }
+/* position:relative so the mobile sidebar overlay + backdrop (#126) can anchor
+   to this row's box — i.e. just below the header — regardless of header height,
+   instead of a brittle hard-coded viewport `top`. No effect on the desktop
+   flex layout. */
+.main-row { flex: 1; display: flex; min-height: 0; overflow: hidden; position: relative; }
 .sidebar {
   display: flex; flex-direction: column;
   background: var(--bg-side);
@@ -1628,3 +1632,75 @@ table.res-table tbody tr:hover td.idx { background: var(--bg-hover); }
 }
 .login-cert-link:hover { text-decoration: underline; }
 .login-cert-go { margin-top: 2px; }
+
+/* ============================================================================
+   Mobile best-effort mode (#126)
+
+   The app is desktop-first. Below MOBILE_BREAKPOINT_PX (768 — keep in sync with
+   src/state.js, which drives the JS `isMobile` matchMedia listener), the shell
+   drops every pointer-only affordance rather than leave a control that silently
+   no-ops on a finger: resize handles vanish, the sidebar becomes a tap overlay,
+   the editor/results stack, and the pan/zoom-only graph fullscreen is hidden.
+   The core SQL loop (schema tap-to-browse, write, run, read, chart, 4 of 5
+   EXPLAIN views) stays fully usable. See the issue for the per-feature triage.
+
+   Base state for the two mobile-only chrome elements — hidden on desktop; the
+   @media block below reveals them. (Declared before the block so the block, at
+   equal specificity + later in source, wins when the media query matches.)
+   ========================================================================== */
+.sidebar-toggle { display: none; }
+.sidebar-backdrop { display: none; }
+
+@media (max-width: 768px) {
+  /* Declutter the header so the essential controls (File menu, theme, user menu)
+     fit a phone width instead of overflowing off-screen — the logo wordmark,
+     host chip, divider, connection readout, and the GitHub/shortcuts buttons
+     (.hd-hide-mobile) are decorative or desktop-only here. */
+  .logo-name, .env-chip, .app-header .hd-divider, .conn-status, .hd-hide-mobile { display: none; }
+
+  /* Sidebar → slide-in overlay toggled by the header .sidebar-toggle button.
+     Anchored to .main-row (position:absolute), so it sits right below the header
+     whatever its height; `width` is set inline (sidebarPx) so override with
+     !important. Off-screen at rest, clipped by .main-row's overflow:hidden. */
+  .sidebar {
+    position: absolute; left: 0; top: 0; bottom: 0;
+    width: min(85vw, 320px) !important;
+    z-index: 40;
+    transform: translateX(-100%);
+    transition: transform .18s ease;
+    box-shadow: 2px 0 18px rgba(0, 0, 0, .4);
+  }
+  .main-row.sidebar-open .sidebar { transform: translateX(0); }
+  .main-row.sidebar-open .sidebar-backdrop {
+    display: block; position: absolute; inset: 0; z-index: 39;
+    background: rgba(0, 0, 0, .45);
+  }
+  .sidebar-toggle { display: inline-flex; }
+
+  /* No draggable splitters on touch — a hidden handle can't receive mousedown,
+     so the splitter JS never wires up (nothing to disable in JS). */
+  .col-resize, .row-resize, .side-split,
+  .col-resize-h, .schema-detail-handle, .cd-resize-h { display: none !important; }
+
+  /* Editor + results stack with a fixed split (the drag handle is gone). The
+     editor height is set inline (editorPct pref) so override with !important. */
+  .editor-region { height: 42% !important; }
+
+  /* Drag cue off (the schema rows drop `draggable` in mobile mode — schema.js). */
+  .tree-row:active { cursor: default; }
+
+  /* Pan/zoom-only graph surfaces: hide the Pipeline EXPLAIN tab and both
+     "Expand" (fullscreen) buttons; the 4 text/table EXPLAIN views remain. */
+  .result-view-tab--pipeline,
+  .res-act--pipeline-expand,
+  .res-act--graph-expand { display: none; }
+
+  /* Fixed-width popovers/cards must fit a phone viewport (the shell is
+     overflow:hidden, so an overflow would clip rather than scroll). */
+  .login-card { width: auto; max-width: 100%; }
+  .file-menu { width: auto; max-width: calc(100vw - 24px); }
+  .ac-dropdown { max-width: calc(100vw - 16px); }
+  .save-popover { max-width: calc(100vw - 16px); }
+  /* Cell-detail drawer → full-width, non-resizable (its handle is hidden above). */
+  .cd-panel { width: 100vw !important; min-width: 0; }
+}

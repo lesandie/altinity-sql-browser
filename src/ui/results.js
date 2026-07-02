@@ -469,7 +469,9 @@ function buildToolbar(app, r) {
       // Expand is meaningless when there's nothing to draw (no connected
       // objects → the pane shows a message, not a graph).
       toolbar.appendChild(h('button', {
-        class: 'res-act', title: 'Open the graph fullscreen with rich cards (pan & zoom)',
+        // `res-act--graph-expand`: fullscreen is pan/zoom-only (no pinch), so CSS
+        // hides it in mobile mode (#126) — the inline drawer graph stays usable.
+        class: 'res-act res-act--graph-expand', title: 'Open the graph fullscreen with rich cards (pan & zoom)',
         onclick: () => app.actions.expandSchemaGraph(sg.focus),
       }, Icon.expand(), h('span', null, 'Expand')));
     }
@@ -483,7 +485,10 @@ function buildToolbar(app, r) {
     for (const v of EXPLAIN_VIEWS) {
       const icon = EXPLAIN_ICONS[v.id];
       tabs.appendChild(h('button', {
-        class: 'result-view-tab' + (r.explainView === v.id ? ' active' : ''),
+        // The pipeline view is the only graph-based EXPLAIN (pan/zoom, no pinch);
+        // its marker class lets CSS hide just this tab in mobile mode (#126),
+        // leaving the four text/table views available.
+        class: 'result-view-tab' + (r.explainView === v.id ? ' active' : '') + (v.id === 'pipeline' ? ' result-view-tab--pipeline' : ''),
         onclick: () => app.actions.setExplainView(v.id),
       }, icon ? icon() : null, h('span', null, v.label)));
     }
@@ -539,7 +544,8 @@ function buildToolbar(app, r) {
     }
     if (r.explainView === 'pipeline' && r.rawText && !r.error) {
       toolbar.appendChild(h('button', {
-        class: 'res-act', title: 'Open the graph fullscreen (pan & zoom)',
+        // Marker class → CSS hides fullscreen (pan/zoom-only) in mobile mode (#126).
+        class: 'res-act res-act--pipeline-expand', title: 'Open the graph fullscreen (pan & zoom)',
         onclick: () => openPipelineFullscreen(app, r.rawText),
       }, Icon.expand(), h('span', null, 'Expand')));
     }

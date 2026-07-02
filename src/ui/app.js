@@ -8,6 +8,7 @@ import { h, zoomScale, fixedAnchor } from './dom.js';
 import { Icon } from './icons.js';
 import {
   createState, activeTab, KEYS, recordHistory, recordScriptHistory, saveQuery, savedForTab, tabChart, normalizeRowLimit,
+  MOBILE_BREAKPOINT_PX,
 } from '../state.js';
 import { splitStatements, isRowReturning, leadingKeyword } from '../core/sql-split.js';
 import { parseSelectResult, firstRowPreview, SELECT_ROW_CAP } from '../core/script-result.js';
@@ -87,6 +88,11 @@ export function createApp(env = {}) {
     // in the user menu so a bug report can be tied to a build. 'dev' in tests /
     // an un-built run where the placeholder was never replaced.
     build: env.build || 'dev',
+    // Mobile-breakpoint seam (#126): matchMedia, injected so tests can drive the
+    // breakpoint. renderApp uses it to seed + track `state.isMobile` against
+    // MOBILE_BREAKPOINT_PX. null when the platform has no matchMedia (treated as
+    // always-desktop — the mobile CSS still applies, just no JS branching).
+    matchMedia: env.matchMedia || (typeof win.matchMedia === 'function' ? win.matchMedia.bind(win) : null),
   };
   // Chromium (+ a secure context) only — Firefox/Safari and plain-HTTP have no
   // File System Access API. The Export button feature-detects this at build
@@ -1554,8 +1560,16 @@ export function renderApp(app, helpers) {
   app.dom.themeBtn.appendChild(state.theme === 'dark' ? Icon.sun() : Icon.moon());
   app.dom.userBtn = h('button', { class: 'hd-btn user-btn', title: app.email(), onclick: () => app.actions.openUserMenu() },
     h('span', { class: 'user-short' }, userShortName(app.email())), Icon.chevDown());
+  // Mobile-only (#126): toggles the sidebar overlay. CSS hides it above the
+  // breakpoint (where the sidebar is an inline column), so it's always in the
+  // DOM but only visible/functional on a phone-width viewport.
+  app.dom.sidebarToggle = h('button', {
+    class: 'hd-btn sidebar-toggle', title: 'Toggle sidebar',
+    onclick: () => { state.sidebarOpen.value = !state.sidebarOpen.value; },
+  }, Icon.menu());
 
   const header = h('div', { class: 'app-header' },
+    app.dom.sidebarToggle,
     h('div', { class: 'logo-mark' }, 'A'),
     h('div', { class: 'logo-name' }, 'Altinity SQL Browser'),
     h('div', { class: 'env-chip' }, app.host()),
@@ -1564,10 +1578,13 @@ export function renderApp(app, helpers) {
     h('div', { style: { flex: '1' } }),
     app.dom.connStatus,
     h('a', {
-      class: 'hd-btn', href: 'https://github.com/Altinity/altinity-sql-browser',
+      // hd-hide-mobile: decorative/desktop-only header items are hidden below the
+      // breakpoint (#126) so the essential controls (File menu, theme, user menu)
+      // fit a phone width instead of overflowing off-screen. See styles.css.
+      class: 'hd-btn hd-hide-mobile', href: 'https://github.com/Altinity/altinity-sql-browser',
       target: '_blank', rel: 'noopener noreferrer', title: 'View source on GitHub',
     }, Icon.github()),
-    h('button', { class: 'hd-btn', title: 'Keyboard shortcuts (?)', onclick: () => app.actions.openShortcuts() }, Icon.shortcuts()),
+    h('button', { class: 'hd-btn hd-hide-mobile', title: 'Keyboard shortcuts (?)', onclick: () => app.actions.openShortcuts() }, Icon.shortcuts()),
     app.dom.themeBtn,
     app.dom.userBtn);
 
@@ -1630,10 +1647,16 @@ export function renderApp(app, helpers) {
   app.dom.editorRegion = h('div', { class: 'editor-region', style: { height: state.editorPct + '%', minHeight: '0', overflow: 'hidden', flexShrink: '0' } });
   app.dom.resultsRegion = h('div', { class: 'results-region', style: { flex: '1', minHeight: '0', overflow: 'hidden' } });
   // Drop a database/table from the schema tree here → render its lineage graph.
+  // Disabled in mobile mode (#126): native drag doesn't fire from touch, and the
+  // schema tree drops its drag sources below the breakpoint, so accepting a drop
+  // here would be a dead affordance. (Clicking a db row still draws the graph via
+  // showSchemaGraph — #124's tap-native trigger — so nothing is lost.)
   app.dom.resultsRegion.addEventListener('dragover', (e) => {
+    if (state.isMobile.value) return;
     if (e.dataTransfer && [...e.dataTransfer.types].includes(SCHEMA_GRAPH_MIME)) e.preventDefault();
   });
   app.dom.resultsRegion.addEventListener('drop', (e) => {
+    if (state.isMobile.value) return;
     const payload = e.dataTransfer && e.dataTransfer.getData(SCHEMA_GRAPH_MIME);
     if (!payload) return;
     e.preventDefault();
@@ -1643,7 +1666,12 @@ export function renderApp(app, helpers) {
 
   const workbench = h('div', { class: 'workbench' }, qtabsRow, editorToolbar, app.dom.editorRegion, app.dom.editorResultsSplit, app.dom.resultsRegion);
   app.dom.banner = h('div', { class: 'auth-banner', style: { display: 'none' } });
-  app.root.replaceChildren(header, app.dom.banner, h('div', { class: 'main-row' }, sidebar, sideHandle, workbench));
+  // Mobile (#126): the sidebar is a slide-in overlay. This backdrop sits behind
+  // it (CSS-hidden except when `.main-row` has `.sidebar-open`, below the
+  // breakpoint) and taps close the overlay.
+  const sidebarBackdrop = h('div', { class: 'sidebar-backdrop', onclick: () => { state.sidebarOpen.value = false; } });
+  const mainRow = h('div', { class: 'main-row' }, sidebar, sideHandle, workbench, sidebarBackdrop);
+  app.root.replaceChildren(header, app.dom.banner, mainRow);
 
   mountEditor(app, app.dom.editorRegion);
   // Reactive repaint of the tab-dependent surface — replaces the old tabs.js
@@ -1693,6 +1721,9 @@ export function renderApp(app, helpers) {
     app.state.schemaError.value;
     app.state.schemaFilter.value;
     app.state.expanded.value;
+    // Crossing the mobile breakpoint (#126) adds/removes each row's drag source
+    // and hover title, so repaint the tree when isMobile flips.
+    app.state.isMobile.value;
     renderSchema(app);
   });
   // The schema/auth-failure banner reflects schemaError (a separate surface).
@@ -1715,6 +1746,23 @@ export function renderApp(app, helpers) {
     app.state.libraryDirty.value;
     renderLibraryTitle(app);
   });
+  // Mobile mode (#126): mirror the viewport width into `isMobile` (drives the
+  // schema tree's drag/hover affordances + the results drop target) via the
+  // injected matchMedia seam. When the platform has no matchMedia the app stays
+  // in desktop JS mode — the mobile CSS still applies, just without JS branching.
+  const mq = app.matchMedia && app.matchMedia('(max-width: ' + MOBILE_BREAKPOINT_PX + 'px)');
+  if (mq) {
+    state.isMobile.value = mq.matches;
+    mq.addEventListener('change', (e) => {
+      state.isMobile.value = e.matches;
+      // Returning to desktop width: collapse the overlay so the inline-column
+      // layout doesn't inherit a stale open state.
+      if (!e.matches) state.sidebarOpen.value = false;
+    });
+  }
+  // Reflect the sidebar-overlay open state onto the shell — CSS keys the slide-in
+  // off `.main-row.sidebar-open`, and only below the breakpoint. Runs once now.
+  effect(() => { mainRow.classList.toggle('sidebar-open', state.sidebarOpen.value); });
   // The shell is mounted (and laid out in a real engine), so the viewport-unit
   // overshoot is measurable now — publish --vp-zoom before any fullscreen graph
   // panel can open, so it sizes correctly on this engine (#70).

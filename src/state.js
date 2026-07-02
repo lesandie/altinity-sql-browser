@@ -43,6 +43,15 @@ export function normalizeRowLimit(n) {
 /** Default name for a fresh / unnamed saved-query library. */
 export const DEFAULT_LIBRARY_NAME = 'SQL Library';
 
+/**
+ * Viewport width (px) at/below which the shell drops into best-effort mobile
+ * mode (#126) — a single value, not a range, so the CSS/JS branching stays
+ * unambiguous. The matching CSS lives in a `@media (max-width: 768px)` block in
+ * styles.css; keep the two literals in sync. app.js wires an injected
+ * `matchMedia('(max-width: <this>px)')` listener that drives `isMobile`.
+ */
+export const MOBILE_BREAKPOINT_PX = 768;
+
 /** A blank query tab. `chartCfg`/`chartKey` hold the per-tab chart config and
  * the schema signature it was derived for (re-derived when the schema changes). */
 export function newTabObj(id) {
@@ -143,6 +152,15 @@ export function createState(read = { loadJSON, loadStr }) {
     // a signal for consistency with the rest of the state (no reactive reader
     // today — shortcuts.js drives its own mount/unmount).
     shortcutsOpen: signal(false),
+    // Best-effort mobile mode (#126). `isMobile` mirrors the viewport width
+    // against MOBILE_BREAKPOINT_PX — set once and on `change` by app.js's
+    // injected matchMedia listener. Read by the schema tree (to drop
+    // touch-useless drag/hover affordances) and the results drop target; the
+    // rest of the mobile layout is pure CSS. `sidebarOpen` toggles the mobile
+    // sidebar overlay (a no-op above the breakpoint, where the sidebar is an
+    // inline column). Both session-only, never persisted. Via `.value`.
+    isMobile: signal(false),
+    sidebarOpen: signal(false),
   };
 }
 

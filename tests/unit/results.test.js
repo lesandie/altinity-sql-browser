@@ -234,6 +234,25 @@ describe('result row cap', () => {
     renderResults(app);
     expect(app.dom.resultsRegion.querySelector('.row-limit-select')).toBeNull();
   });
+  it('marks the Pipeline tab + graph Expand buttons so mobile CSS can hide them (#126)', () => {
+    // Pipeline EXPLAIN view: exactly one tab carries the pipeline marker class,
+    // and the pipeline "Expand" (fullscreen) button carries its own.
+    const r = newResult('Table');
+    r.explainView = 'pipeline';
+    r.rawText = 'digraph{}';
+    const app = appWithResult(r);
+    renderResults(app);
+    const region = app.dom.resultsRegion;
+    expect(region.querySelectorAll('.result-view-tab--pipeline')).toHaveLength(1);
+    expect(region.querySelector('.result-view-tab--pipeline').textContent).toContain('Pipeline');
+    expect(region.querySelector('.res-act--pipeline-expand')).not.toBeNull();
+    // A schema-lineage result exposes its own Expand marker.
+    const sg = newResult('Table');
+    sg.schemaGraph = { focus: { kind: 'db', db: 'd' }, nodes: [{ id: 'd.t' }], edges: [] };
+    const app2 = appWithResult(sg);
+    renderResults(app2);
+    expect(app2.dom.resultsRegion.querySelector('.res-act--graph-expand')).not.toBeNull();
+  });
   it('shows a "first N (capped)" badge when the result is capped, none otherwise', () => {
     const r = tableResult();
     r.rowLimit = 500;

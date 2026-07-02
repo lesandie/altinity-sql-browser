@@ -2756,3 +2756,66 @@ describe('schema graph drop edge cases', () => {
     expect(app.actions.showSchemaGraph).not.toHaveBeenCalled();
   });
 });
+
+describe('mobile best-effort mode (#126)', () => {
+  // A controllable MediaQueryList stub so a test can seed `matches` and later
+  // fire a `change` (simulating crossing the breakpoint / a device rotation).
+  function fakeMQL(matches) {
+    const listeners = [];
+    return {
+      matches,
+      addEventListener: (_type, fn) => listeners.push(fn),
+      emit(next) { this.matches = next; for (const fn of listeners) fn({ matches: next }); },
+    };
+  }
+  function mobileApp(matches = true) {
+    const mql = fakeMQL(matches);
+    const app = createApp(env({ matchMedia: () => mql, fetch: makeFetch([]) }));
+    app.renderApp();
+    return { app, mql };
+  }
+
+  it('seeds isMobile from matchMedia and mounts the sidebar toggle + backdrop', () => {
+    const { app } = mobileApp(true);
+    expect(app.state.isMobile.value).toBe(true);
+    expect(app.root.querySelector('.sidebar-toggle')).not.toBeNull();
+    expect(app.root.querySelector('.sidebar-backdrop')).not.toBeNull();
+  });
+
+  it('a breakpoint change flips isMobile and collapses the sidebar overlay when leaving mobile', () => {
+    const { app, mql } = mobileApp(true);
+    app.state.sidebarOpen.value = true;
+    mql.emit(false); // → desktop width
+    expect(app.state.isMobile.value).toBe(false);
+    expect(app.state.sidebarOpen.value).toBe(false); // stale overlay collapsed
+    mql.emit(true); // back to mobile — the open state is left as-is (still false)
+    expect(app.state.isMobile.value).toBe(true);
+    expect(app.state.sidebarOpen.value).toBe(false);
+  });
+
+  it('the header toggle opens the sidebar overlay; the backdrop closes it', () => {
+    const { app } = mobileApp(true);
+    const mainRow = app.root.querySelector('.main-row');
+    expect(mainRow.classList.contains('sidebar-open')).toBe(false);
+    app.root.querySelector('.sidebar-toggle').dispatchEvent(new Event('click', { bubbles: true }));
+    expect(app.state.sidebarOpen.value).toBe(true);
+    expect(mainRow.classList.contains('sidebar-open')).toBe(true);
+    app.root.querySelector('.sidebar-backdrop').dispatchEvent(new Event('click', { bubbles: true }));
+    expect(app.state.sidebarOpen.value).toBe(false);
+    expect(mainRow.classList.contains('sidebar-open')).toBe(false);
+  });
+
+  it('the results-pane schema-graph drop target is inert on mobile (drop + dragover no-op)', () => {
+    const { app } = mobileApp(true);
+    app.actions.showSchemaGraph = vi.fn();
+    const drop = new Event('drop', { cancelable: true });
+    drop.dataTransfer = { getData: () => '{"kind":"db","db":"d"}' };
+    app.dom.resultsRegion.dispatchEvent(drop);
+    expect(drop.defaultPrevented).toBe(false);
+    expect(app.actions.showSchemaGraph).not.toHaveBeenCalled();
+    const over = new Event('dragover', { cancelable: true });
+    over.dataTransfer = { types: ['application/x-asb-schema-graph'] };
+    app.dom.resultsRegion.dispatchEvent(over);
+    expect(over.defaultPrevented).toBe(false); // guard returns before preventDefault
+  });
+});
