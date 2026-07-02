@@ -182,7 +182,7 @@ enforce `expected_audience`.
 
 So: if you set `expected_audience` in §1, set `bearer: access_token` and the
 matching `audience` in the browser's `config.json`; otherwise leave both at their
-defaults. See the repo README "Configuring OAuth".
+defaults. See [LOGIN-SCREEN.md](LOGIN-SCREEN.md).
 
 ---
 

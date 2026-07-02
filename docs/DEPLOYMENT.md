@@ -66,8 +66,8 @@ Either way, the app itself is unchanged — it only sends the bearer.
 Register the redirect URI `https://<ch-host>/sql` with your IdP and put the
 `issuer` + `client_id` in `config.json` (the installer does this from
 `--issuer`/`--client-id`). Whether `config.json` also needs a `client_secret`
-depends on the IdP and client type — see the "Configuring OAuth" section in the
-README for the trade-offs between a PKCE public client, a secret-bearing web
+depends on the IdP and client type — see [LOGIN-SCREEN.md](LOGIN-SCREEN.md)
+for the trade-offs between a PKCE public client, a secret-bearing web
 client, and a server-side broker.
 
 ## Verify

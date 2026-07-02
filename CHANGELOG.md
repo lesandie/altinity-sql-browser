@@ -55,10 +55,11 @@ auto-generated per-PR notes; this file is the curated, human-readable history.
 - Login screen: removed the footer's GitHub source link and "OAuth ·
   credentials" method tag — noise a first-time visitor had to parse before
   signing in (#123). The screen's other reported complexity (multiple visible
-  panels, the server picker) is a deployment config choice, not a code issue —
-  see new [docs/LOGIN-SCREEN.md](docs/LOGIN-SCREEN.md), linked from the
-  README's "Credentials login" section, for shaping it down to a single SSO
-  button.
+  panels, the server picker) is a deployment config choice, not a code issue.
+  Consolidated all login-screen config docs (OAuth setup, multiple IdPs,
+  credentials login, the host/Advanced picker, the local-dev saved-connection
+  picker) out of the README into a single new
+  [docs/LOGIN-SCREEN.md](docs/LOGIN-SCREEN.md), linked from the README.
 
 ## [0.2.0] - 2026-07-01
 
