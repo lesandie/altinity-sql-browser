@@ -370,6 +370,10 @@ one matches the token's `iss`, so no extra CH wiring is required to offer severa
 Alongside SSO, the sign-in screen offers a **ClickHouse username + password**
 path (HTTP Basic), shown by default.
 
+> For a deployment-focused walk-through of shaping the login screen down to
+> the minimum it needs (e.g. a single SSO button), see
+> [docs/LOGIN-SCREEN.md](docs/LOGIN-SCREEN.md).
+
 **Hide it (SSO-only).** If the cluster has no password-authenticated CH users —
 e.g. it only accepts JWTs via a `token_processor`/verifier — the credentials path
 would just 401, so set top-level `"basic_login": false` to drop it and offer SSO

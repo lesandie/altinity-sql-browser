@@ -28,7 +28,7 @@ describe('renderLogin — structure', () => {
     expect(app.root.querySelector('.login-sub')).toBeNull(); // subtitle removed
     expect(app.root.querySelectorAll('.login-input')).toHaveLength(3); // user, pass, host
     expect(app.root.querySelector('.login-target .lt-as').textContent).toBe('via SSO');
-    expect(app.root.querySelector('.login-foot-link[href*="github.com"]')).not.toBeNull();
+    expect(app.root.querySelector('.login-foot')).toBeNull(); // no source link / auth-method tag (#123)
     expect(app.root.querySelector('.login-error')).toBeNull();
   });
   it('shows an error message when given', () => {
@@ -223,27 +223,6 @@ describe('renderLogin — SSO section', () => {
     await tick();
     expect(app.root.querySelector('.login-creds')).not.toBeNull();
     expect(app.root.querySelectorAll('.login-sso .login-btn')).toHaveLength(0);
-  });
-});
-
-describe('renderLogin — footer tag adapts to available methods', () => {
-  const ver = (app) => app.root.querySelector('.login-foot-ver').textContent;
-  const render = async (over) => { const app = appWith(over); renderLogin(app); await tick(); return app; };
-
-  it('SSO + credentials', async () => {
-    expect(ver(await render({ loadIdps: async () => ({ idps: [{ id: 'g', label: 'Google' }], basicLogin: true }) }))).toBe('OAuth · credentials');
-  });
-  it('SSO only (basic_login:false)', async () => {
-    expect(ver(await render({ loadIdps: async () => ({ idps: [{ id: 'g', label: 'Google' }], basicLogin: false }) }))).toBe('OAuth');
-  });
-  it('credentials only (no IdPs)', async () => {
-    expect(ver(await render({ loadIdps: async () => ({ idps: [], basicLogin: true }) }))).toBe('credentials');
-  });
-  it('neither method configured', async () => {
-    expect(ver(await render({ loadIdps: async () => ({ idps: [], basicLogin: false }) }))).toBe('—');
-  });
-  it('config load failure → credentials-only', async () => {
-    expect(ver(await render({ loadIdps: async () => { throw new Error('x'); } }))).toBe('credentials');
   });
 });
 

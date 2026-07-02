@@ -113,11 +113,9 @@ export function renderLogin(app, errorMsg) {
     hostPicker,
     certWarn);
 
-  // Footer tag adapts to which methods are available (set by applyChrome once
-  // the IdP list / basic_login flag resolve). The brand block is heading enough,
-  // so there's no separate "Sign in" title or subtitle.
-  const footVer = h('span', { class: 'mono login-foot-ver' }, 'OAuth · credentials');
-
+  // The brand block is heading enough, so there's no separate "Sign in" title
+  // or subtitle, and no footer — a source link + auth-method tag just added
+  // noise the user has to parse before signing in (#123).
   const card = h('div', { class: 'login-card login-card-wide' },
     h('div', { class: 'login-brand' },
       h('div', { class: 'login-logo' }, 'A'),
@@ -127,14 +125,7 @@ export function renderLogin(app, errorMsg) {
     pickerSection,
     ssoSection,
     credSection,
-    errorMsg ? h('div', { class: 'login-error' }, errorMsg) : null,
-    h('div', { class: 'login-foot' },
-      h('a', {
-        class: 'login-foot-link', href: 'https://github.com/Altinity/altinity-sql-browser',
-        target: '_blank', rel: 'noopener noreferrer',
-      }, Icon.github(), h('span', null, 'Source')),
-      h('span', { style: { flex: '1' } }),
-      footVer));
+    errorMsg ? h('div', { class: 'login-error' }, errorMsg) : null);
 
   app.root.replaceChildren(h('div', { class: 'login-screen' }, card));
   update();
@@ -151,11 +142,10 @@ export function renderLogin(app, errorMsg) {
     update();
   }).catch(() => applyChrome(false, true)); // no config → credentials only
 
-  // Reconcile subtitle, footer tag, and the SSO/credentials divider with which
-  // sign-in methods are actually offered.
+  // Show the "or use credentials" divider only when both sign-in methods
+  // are actually offered.
   function applyChrome(hasSso, credsShown) {
     divider.style.display = (hasSso && credsShown) ? '' : 'none';
-    footVer.textContent = [hasSso && 'OAuth', credsShown && 'credentials'].filter(Boolean).join(' · ') || '—';
   }
 
   function populateSso(idps) {

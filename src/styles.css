@@ -223,13 +223,6 @@ body {
   font-size: 12px; text-align: left;
   white-space: pre-wrap; word-break: break-word;
 }
-.login-foot {
-  margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border-faint);
-  display: flex; align-items: center; font-size: 11px; color: var(--fg-faint);
-}
-.login-foot-link { display: flex; align-items: center; gap: 5px; color: var(--fg-mute); }
-.login-foot-link:hover { color: var(--fg); }
-
 /* ------------ header ------------ */
 .app-header {
   height: 44px;
