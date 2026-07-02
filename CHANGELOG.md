@@ -60,6 +60,11 @@ auto-generated per-PR notes; this file is the curated, human-readable history.
   credentials login, the host/Advanced picker, the local-dev saved-connection
   picker) out of the README into a single new
   [docs/LOGIN-SCREEN.md](docs/LOGIN-SCREEN.md), linked from the README.
+- The sidebar's schema/library **splitter (drag to resize) stopped working**
+  after #126: it resized `sidebar.firstElementChild`, which #126's new mobile
+  segmented control (hidden on desktop) had silently become instead of the
+  schema pane — so dragging visibly did nothing. Now targets the schema pane
+  directly.
 
 ## [0.2.0] - 2026-07-01
 

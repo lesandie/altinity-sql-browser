@@ -1625,7 +1625,7 @@ export function renderApp(app, helpers) {
     scale: () => zoomScale(sidebar),
     apply: (axis, value) => {
       if (axis === 'col') sidebar.style.width = value + 'px';
-      else if (axis === 'sideRow') sidebar.firstElementChild.style.height = value + '%';
+      else if (axis === 'sideRow') schemaPane.style.height = value + '%';
       else app.dom.editorRegion.style.height = value + '%';
     },
     save: (name, value) => app.savePref(name, value),
