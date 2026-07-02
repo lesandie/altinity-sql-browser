@@ -1407,6 +1407,12 @@ describe('exhaustive controller coverage', () => {
     drag(app.dom.sideSplit, 'sideRow');
     drag(app.dom.editorResultsSplit, 'row');
     expect(app.state.sidebarPx).toBeDefined();
+    // sideRow must resize the schema pane itself, not whichever element happens
+    // to be the sidebar's first child (the mobile segmented control sits before
+    // it in the DOM for #126) — regression guard, live bug found post-#126.
+    const schemaPane = app.root.querySelector('.schema-pane');
+    expect(schemaPane.style.height).toBe(app.state.sideSplitPct + '%');
+    expect(app.root.querySelector('.mobile-segmented').style.height).toBe('');
   });
 
   it('run(): network error → "Network error"', async () => {
