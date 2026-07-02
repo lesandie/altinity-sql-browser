@@ -499,9 +499,16 @@ panel-sizing spec. **Caveat:** Playwright's WebKit applies `zoom` to
 it is not a faithful Safari proxy for that specific behavior — the real-Safari
 viewport-unit path is verified manually (tracked in the #71 matrix).
 
-> There is no responsive CSS today (fixed px, `overflow:hidden` on
-> `html`/`body`), so the app targets **desktop** browsers; the formal
-> narrow-viewport stance is part of the matrix in #71.
+> The app targets **desktop** browsers, plus a **best-effort mobile mode**
+> (#126): below a 768px viewport the shell becomes a bottom-tab-nav workbench — a
+> bottom bar switches between three full-screen panels (**Tables / Editor /
+> Results**), with a Schema|Library toggle in Tables and a row-count badge on
+> Results, and it auto-navigates (tap a column → Editor, Run → Results). The core
+> SQL loop (tap to browse the schema, write, run, read results, chart, and 4 of
+> the 5 EXPLAIN views) is fully usable on a phone. Pointer-only extras (resizing,
+> native drag-and-drop, hover tooltips, the Pipeline graph) are hidden rather
+> than left half-working on touch. The formal narrow-viewport stance is part of
+> the matrix in #71.
 
 The full system-requirements matrix — minimum browser versions, supported
 ClickHouse server versions, and IdP/OAuth requirements — is tracked in #71.

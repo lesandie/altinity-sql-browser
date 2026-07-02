@@ -10,6 +10,24 @@ auto-generated per-PR notes; this file is the curated, human-readable history.
 ## [Unreleased]
 
 ### Added
+- **Best-effort mobile mode** (#126): below a 768px viewport the shell becomes a
+  **bottom-tab-nav workbench** — a bottom bar switches between three full-screen
+  panels, **Tables / Editor / Results**, instead of squeezing the desktop
+  sidebar + split panes onto a phone. Tables has a **Schema | Library** segmented
+  toggle; Results carries a live badge (row count, or ● while a query streams).
+  The nav follows the natural flow: tapping a schema column jumps to the Editor,
+  loading a saved query opens it in the Editor, and running a query jumps to
+  Results. Every pointer-only affordance is *removed* rather than left
+  half-working on touch — all resize handles, the schema tree's native drag
+  sources and hover tooltips, the drag-to-drawer schema-graph drop target, the
+  graph-based `Pipeline` EXPLAIN view, and both graph fullscreen `Expand`
+  buttons; button-anchored popovers (Save, user menu) center on-screen; the
+  editor/results toolbars swipe-scroll; and the header declutters so the File /
+  theme / user-menu controls fit. The core SQL loop stays fully usable: tap to
+  browse the schema (a db-row tap still draws its lineage graph, via #124),
+  write, run, read results, chart, and the four text/table EXPLAIN views. A
+  single breakpoint (`MOBILE_BREAKPOINT_PX`, mirrored by the CSS `@media`) drives
+  an injected `matchMedia` `isMobile` signal plus `mobileView` / `mobileTab`.
 - **Click a closed database row to draw its schema graph** (#124): expanding a
   collapsed db in the tree now also draws its lineage in the bottom drawer, the
   same as dragging it — collapsing again doesn't re-fetch or re-draw.

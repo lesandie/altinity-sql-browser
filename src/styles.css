@@ -388,7 +388,11 @@ body {
 .fm-dialog-confirm:hover { filter: brightness(1.08); }
 
 /* ------------ main row ------------ */
-.main-row { flex: 1; display: flex; min-height: 0; overflow: hidden; }
+/* position:relative so the mobile sidebar overlay + backdrop (#126) can anchor
+   to this row's box — i.e. just below the header — regardless of header height,
+   instead of a brittle hard-coded viewport `top`. No effect on the desktop
+   flex layout. */
+.main-row { flex: 1; display: flex; min-height: 0; overflow: hidden; position: relative; }
 .sidebar {
   display: flex; flex-direction: column;
   background: var(--bg-side);
@@ -1076,7 +1080,15 @@ body.detached-tab .graph-overlay-panel {
   background: var(--bg-toolbar);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+  /* Swipe-scroll when the buttons don't fit a narrow workbench (mobile portrait,
+     small landscape) instead of clipping unreachably (#126). A no-op at desktop
+     widths where they fit. Keep each control full-size (overflow, don't squish);
+     the inline flex:1 spacer still collapses to 0 on overflow and grows when
+     there's room. Scrollbar hidden — the partially-cut last button is the hint. */
+  overflow-x: auto; scrollbar-width: none;
 }
+.ed-toolbar > * { flex-shrink: 0; }
+.ed-toolbar::-webkit-scrollbar { display: none; }
 .run-btn {
   height: 26px;
   padding: 0 12px 0 10px;
@@ -1312,7 +1324,13 @@ body.detached-tab .graph-overlay-panel {
   background: var(--bg-toolbar);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+  /* Same swipe-scroll as .ed-toolbar (#126). Here the no-shrink on children is
+     what makes it scroll: the tabs/stats/actions are otherwise shrinkable and
+     would compress to an unreadable smear instead of overflowing. */
+  overflow-x: auto; scrollbar-width: none;
 }
+.res-toolbar > * { flex-shrink: 0; }
+.res-toolbar::-webkit-scrollbar { display: none; }
 .view-pills {
   display: flex; background: var(--bg-chip);
   border-radius: 5px; padding: 2px;
@@ -1628,3 +1646,144 @@ table.res-table tbody tr:hover td.idx { background: var(--bg-hover); }
 }
 .login-cert-link:hover { text-decoration: underline; }
 .login-cert-go { margin-top: 2px; }
+
+/* ============================================================================
+   Mobile best-effort mode (#126)
+
+   The app is desktop-first. Below MOBILE_BREAKPOINT_PX (768 — keep in sync with
+   src/state.js, which drives the JS `isMobile` matchMedia listener), the shell
+   becomes a bottom-tab-nav workbench: one full-screen panel at a time (Tables /
+   Editor / Results) chosen from a bottom bar, instead of squeezing the desktop
+   sidebar + split panes onto a phone. Pointer-only affordances (resize handles,
+   drag sources, pan/zoom graph fullscreen) are still hidden; the core SQL loop
+   (tap-browse schema, write, run, read, chart, 4 of 5 EXPLAIN views) is intact.
+
+   Base state for the mobile-only chrome — hidden on desktop; the @media block
+   below reveals it. (Declared before the block so the block, at equal
+   specificity + later in source, wins when the media query matches.)
+   ========================================================================== */
+.mobile-nav { display: none; }
+.mobile-segmented { display: none; }
+
+/* Header declutter — a wider *cosmetic* breakpoint than the stacked mobile
+   layout below (#126). The full header (logo wordmark, host chip, divider,
+   connection readout, GitHub/shortcuts) overflows a narrow width and, since the
+   shell is overflow:hidden, pushes the essential right-side controls (theme,
+   user menu) off-screen unreachably. That happens on phone *landscape* too
+   (~780px CSS — above the 768 layout breakpoint), so the declutter triggers at
+   900px while the stacked layout + overlay sidebar stay a portrait-only ≤768
+   concern (side-by-side suits wide-but-short landscape). The hidden items are
+   all decorative or desktop-only; File / theme / user menu remain. */
+@media (max-width: 900px) {
+  .logo-name, .env-chip, .app-header .hd-divider, .conn-status, .hd-hide-mobile { display: none; }
+  /* Cap the user-menu label so a long local-part (`btyshkevich ▾`) can't widen
+     the header back past the viewport. */
+  .hd-btn.user-btn .user-short { max-width: 90px; }
+}
+
+@media (max-width: 768px) {
+  /* Tighten the header's gap/padding so the decluttered controls fit the
+     narrowest portrait phones (~360px), where the default 14px gaps alone
+     still overflowed. */
+  .app-header { gap: 8px; padding: 0 8px; }
+
+  /* ---- Bottom tab nav: one full-screen panel at a time ---- */
+  .mobile-nav {
+    display: flex; flex-shrink: 0; height: 56px;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    background: var(--bg-header); border-top: 1px solid var(--border);
+  }
+  .mobile-nav-btn {
+    flex: 1; border: none; background: transparent; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+    color: var(--fg-faint); font-family: inherit; position: relative;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .mnav-ic { display: flex; position: relative; }
+  .mnav-label { font-size: 10.5px; font-weight: 500; letter-spacing: .01em; }
+  /* Active tab: accent-tinted with a top bar (mirrors the desktop tab accent). */
+  .main-row[data-mobile-view="tables"] ~ .mobile-nav .mobile-nav-btn[data-view="tables"],
+  .main-row[data-mobile-view="editor"] ~ .mobile-nav .mobile-nav-btn[data-view="editor"],
+  .main-row[data-mobile-view="results"] ~ .mobile-nav .mobile-nav-btn[data-view="results"] {
+    color: var(--accent);
+  }
+  .main-row[data-mobile-view="tables"] ~ .mobile-nav .mobile-nav-btn[data-view="tables"] .mnav-label,
+  .main-row[data-mobile-view="editor"] ~ .mobile-nav .mobile-nav-btn[data-view="editor"] .mnav-label,
+  .main-row[data-mobile-view="results"] ~ .mobile-nav .mobile-nav-btn[data-view="results"] .mnav-label { font-weight: 600; }
+  .main-row[data-mobile-view="tables"] ~ .mobile-nav .mobile-nav-btn[data-view="tables"]::before,
+  .main-row[data-mobile-view="editor"] ~ .mobile-nav .mobile-nav-btn[data-view="editor"]::before,
+  .main-row[data-mobile-view="results"] ~ .mobile-nav .mobile-nav-btn[data-view="results"]::before {
+    content: ''; position: absolute; top: 0; left: 30%; right: 30%; height: 2px;
+    background: var(--accent); border-radius: 2px;
+  }
+  /* Results row-count / ● badge, top-right of the icon. Empty → hidden. */
+  .mnav-badge {
+    position: absolute; top: -6px; left: 100%; margin-left: -8px;
+    min-width: 15px; height: 15px; padding: 0 4px; border-radius: 8px;
+    background: var(--accent); color: #fff; font-size: 9px; font-weight: 700;
+    font-family: var(--mono); display: flex; align-items: center; justify-content: center;
+  }
+  .mnav-badge:empty { display: none; }
+
+  /* ---- Full-screen view switching (main-row[data-mobile-view]) ---- */
+  /* Tables → sidebar fills; workbench hidden. Sidebar is a normal flow child
+     here (not the desktop resizable column), full width. */
+  .main-row[data-mobile-view="tables"] .workbench { display: none; }
+  .main-row[data-mobile-view="tables"] .sidebar { display: flex; width: 100% !important; }
+  /* Editor / Results → sidebar hidden, workbench fills. */
+  .main-row[data-mobile-view="editor"] .sidebar,
+  .main-row[data-mobile-view="results"] .sidebar { display: none; }
+  /* Editor view: query tabs + toolbar + editor; hide the results half. */
+  .main-row[data-mobile-view="editor"] .results-region,
+  .main-row[data-mobile-view="editor"] .editor-results-split { display: none; }
+  .main-row[data-mobile-view="editor"] .editor-region { height: auto !important; flex: 1; }
+  /* Results view: just the results pane (its own toolbar lives inside it). */
+  .main-row[data-mobile-view="results"] .qtabs,
+  .main-row[data-mobile-view="results"] .ed-toolbar,
+  .main-row[data-mobile-view="results"] .editor-region,
+  .main-row[data-mobile-view="results"] .editor-results-split { display: none; }
+
+  /* ---- Tables view: Schema | Library segmented, one pane at a time ---- */
+  .mobile-segmented {
+    display: flex; gap: 3px; padding: 3px; margin: 8px 10px; flex-shrink: 0;
+    background: var(--bg-chip); border-radius: 8px;
+  }
+  .mseg-btn {
+    flex: 1; height: 32px; border: none; border-radius: 6px; cursor: pointer;
+    background: transparent; color: var(--fg-mute); font-weight: 500; font-size: 12.5px;
+    font-family: inherit; display: flex; align-items: center; justify-content: center; gap: 6px;
+  }
+  .sidebar[data-mobile-tab="schema"] .mseg-btn[data-seg="schema"],
+  .sidebar[data-mobile-tab="library"] .mseg-btn[data-seg="library"] {
+    background: var(--bg-header); color: var(--fg); font-weight: 600;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, .18);
+  }
+  /* Show only the selected pane full-height (override the desktop split %). */
+  .sidebar[data-mobile-tab="schema"] .saved-pane,
+  .sidebar[data-mobile-tab="library"] .schema-pane { display: none; }
+  .sidebar[data-mobile-tab="schema"] .schema-pane { height: auto !important; flex: 1; }
+  .sidebar[data-mobile-tab="library"] .saved-pane { flex: 1; }
+
+  /* No draggable splitters on touch — a hidden handle can't receive mousedown,
+     so the splitter JS never wires up (nothing to disable in JS). */
+  .col-resize, .row-resize, .side-split,
+  .col-resize-h, .schema-detail-handle, .cd-resize-h { display: none !important; }
+
+  /* Drag cue off (the schema rows drop `draggable` in mobile mode — schema.js). */
+  .tree-row:active { cursor: default; }
+
+  /* Pan/zoom-only graph surfaces: hide the Pipeline EXPLAIN tab and both
+     "Expand" (fullscreen) buttons; the 4 text/table EXPLAIN views remain. */
+  .result-view-tab--pipeline,
+  .res-act--pipeline-expand,
+  .res-act--graph-expand { display: none; }
+
+  /* Fixed-width popovers/cards must fit a phone viewport (the shell is
+     overflow:hidden, so an overflow would clip rather than scroll). */
+  .login-card { width: auto; max-width: 100%; }
+  .file-menu { width: auto; max-width: calc(100vw - 24px); }
+  .ac-dropdown { max-width: calc(100vw - 16px); }
+  .save-popover { max-width: calc(100vw - 16px); }
+  /* Cell-detail drawer → full-width, non-resizable (its handle is hidden above). */
+  .cd-panel { width: 100vw !important; min-width: 0; }
+}

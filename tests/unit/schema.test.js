@@ -293,6 +293,46 @@ describe('renderSchema drag sources', () => {
   });
 });
 
+describe('renderSchema in mobile mode (#126)', () => {
+  // Below the breakpoint, a row's drag source and hover `title` are both
+  // pointer-only, so neither is rendered — only the tap-native click behaviour.
+  function mobileSchema(withCols) {
+    const app = withSchema();
+    if (withCols) {
+      app.state.schema.value[0].tables[0].columns = [{ name: 'id', type: 'UInt64', comment: 'pk' }];
+      setExpanded(app, 'tb:db1.orders');
+    }
+    app.state.isMobile.value = true;
+    renderSchema(app);
+    return app;
+  }
+  it('drops draggable + title on db, table and column rows', () => {
+    const app = mobileSchema(true);
+    const dbRow = rows(app).find((r) => r.querySelector('.label').textContent === 'db1');
+    const ordersRow = rows(app).find((r) => r.querySelector('.label').textContent === 'orders');
+    const colRow = [...app.dom.schemaList.querySelectorAll('.tree-row.small')]
+      .find((r) => r.querySelector('.label').textContent === 'id');
+    for (const row of [dbRow, ordersRow, colRow]) {
+      expect(row.getAttribute('draggable')).toBeNull();
+      expect(row.getAttribute('title')).toBeNull();
+    }
+  });
+  it('a dragstart carries no payload when mobile (no drag source wired)', () => {
+    const app = mobileSchema(false);
+    const dbRow = rows(app).find((r) => r.querySelector('.label').textContent === 'db1');
+    const d = dragstart(dbRow);
+    expect(d[IDENT_MIME]).toBeUndefined();
+    expect(d[SCHEMA_GRAPH_MIME]).toBeUndefined();
+  });
+  it('tap (click) still expands + draws the graph — the core loop is intact', () => {
+    const app = mobileSchema(false);
+    const db2Row = rows(app).find((r) => r.querySelector('.label').textContent === 'db2');
+    click(db2Row);
+    expect(app.state.expanded.value.has('db:db2')).toBe(true);
+    expect(app.actions.showSchemaGraph).toHaveBeenCalledWith({ kind: 'db', db: 'db2' });
+  });
+});
+
 describe('renderSchema with non-bare object names (backtick quoting)', () => {
   const PARQUET = 'part-00000-70041866.snappy.parquet';
   function withParquet() {

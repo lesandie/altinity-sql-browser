@@ -106,6 +106,15 @@ export function renderSchema(app) {
     return;
   }
 
+  // Mobile (#126): a schema row's drag source and hover `title` are both
+  // pointer-only — native HTML5 drag doesn't fire from a finger and native
+  // tooltips don't reveal on tap — so below the breakpoint we render neither,
+  // leaving only the tap-native click/double-tap behaviour. The schema effect
+  // in app.js reads isMobile too, so crossing the breakpoint repaints the tree.
+  const mobile = state.isMobile.value;
+  const dragAttrs = (props) => (mobile ? {} : props);
+  const hoverTitle = (text) => (mobile ? {} : { title: text });
+
   const filter = state.schemaFilter.value.trim().toLowerCase();
   const matches = (s) => !filter || s.toLowerCase().includes(filter);
 
@@ -116,7 +125,7 @@ export function renderSchema(app) {
     list.appendChild(h('div', {
       class: 'tree-row bold',
       'data-key': dbKey,
-      title: db.comment || 'Click to expand · double-click to insert · shift-click for SHOW CREATE · drag to Data for Schema',
+      ...hoverTitle(db.comment || 'Click to expand · double-click to insert · shift-click for SHOW CREATE · drag to Data for Schema'),
       onclick: (e) => {
         if (e.shiftKey) { app.actions.insertCreate('DATABASE ' + qdb); return; }
         if (isDoubleClick(app, dbKey)) { app.actions.insertAtCursor(qdb); return; }
@@ -128,7 +137,7 @@ export function renderSchema(app) {
         // above (dbOpen unchanged), so this only fires on a genuine expand.
         if (!dbOpen) app.actions.showSchemaGraph({ kind: 'db', db: db.db });
       },
-      ...lineageDrag(qdb, { kind: 'db', db: db.db }),
+      ...dragAttrs(lineageDrag(qdb, { kind: 'db', db: db.db })),
     },
       ...treeRow(Icon.database(), db.db, String(db.tables.length), { expanded: dbOpen }),
     ));
@@ -152,8 +161,8 @@ export function renderSchema(app) {
         class: 'tree-row' + (filter && tableMatch ? ' match' : ''),
         style: { paddingLeft: '24px' },
         'data-key': tbKey,
-        title,
-        ...lineageDrag(qname, { kind: 'table', db: db.db, table: tb.name }),
+        ...hoverTitle(title),
+        ...dragAttrs(lineageDrag(qname, { kind: 'table', db: db.db, table: tb.name })),
         onclick: (e) => {
           if (e.shiftKey) { app.actions.insertCreate(qname); return; }
           if (isDoubleClick(app, tbKey)) { app.actions.replaceEditor('SELECT * FROM ' + qname + ' LIMIT 100'); return; }
@@ -183,14 +192,14 @@ export function renderSchema(app) {
         list.appendChild(h('div', {
           class: 'tree-row small mono' + (filter && matches(c.name) ? ' match' : ''),
           style: { paddingLeft: '38px' },
-          title: (c.comment && c.comment.trim())
-            || ('Double-click or drag to insert ' + c.name + ' · shift-click for ' + c.name + '::' + c.type),
+          ...hoverTitle((c.comment && c.comment.trim())
+            || ('Double-click or drag to insert ' + c.name + ' · shift-click for ' + c.name + '::' + c.type)),
           onclick: (e) => {
             e.stopPropagation();
             if (e.shiftKey) { app.actions.insertAtCursor(quoteIdent(c.name) + '::' + c.type); return; }
             if (isDoubleClick(app, 'col:' + key + '.' + c.name)) app.actions.insertAtCursor(quoteIdent(c.name));
           },
-          ...dragProps(quoteIdent(c.name)),
+          ...dragAttrs(dragProps(quoteIdent(c.name))),
         },
           ...treeRow(Icon.col(), c.name, c.type, { expanded: null, iconColor: 'var(--fg-faint)' }),
         ));

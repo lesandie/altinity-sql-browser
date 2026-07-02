@@ -8,12 +8,13 @@ import { h, zoomScale, fixedAnchor } from './dom.js';
 import { Icon } from './icons.js';
 import {
   createState, activeTab, KEYS, recordHistory, recordScriptHistory, saveQuery, savedForTab, tabChart, normalizeRowLimit,
+  MOBILE_BREAKPOINT_PX,
 } from '../state.js';
 import { splitStatements, isRowReturning, leadingKeyword } from '../core/sql-split.js';
 import { parseSelectResult, firstRowPreview, SELECT_ROW_CAP } from '../core/script-result.js';
 import { saveJSON, saveStr } from '../core/storage.js';
 import { decodeJwtPayload, isTokenExpired } from '../core/jwt.js';
-import { sqlString, inferQueryName, shortVersion, supportsExplainPretty, userShortName, withStatementBreak, detectSqlFormat, isSchemaMutatingSql, prepareExportSql, formatBytes } from '../core/format.js';
+import { sqlString, inferQueryName, shortVersion, supportsExplainPretty, userShortName, withStatementBreak, detectSqlFormat, isSchemaMutatingSql, prepareExportSql, formatBytes, formatRows } from '../core/format.js';
 import { EXPLAIN_VIEWS, parseExplain, detectExplainView, buildExplainQuery } from '../core/explain.js';
 import { buildSchemaGraph, expandLineage } from '../core/schema-graph.js';
 import { buildCardGraph } from '../core/schema-cards.js';
@@ -87,6 +88,11 @@ export function createApp(env = {}) {
     // in the user menu so a bug report can be tied to a build. 'dev' in tests /
     // an un-built run where the placeholder was never replaced.
     build: env.build || 'dev',
+    // Mobile-breakpoint seam (#126): matchMedia, injected so tests can drive the
+    // breakpoint. renderApp uses it to seed + track `state.isMobile` against
+    // MOBILE_BREAKPOINT_PX. null when the platform has no matchMedia (treated as
+    // always-desktop — the mobile CSS still applies, just no JS branching).
+    matchMedia: env.matchMedia || (typeof win.matchMedia === 'function' ? win.matchMedia.bind(win) : null),
   };
   // Chromium (+ a secure context) only — Firefox/Safari and plain-HTTP have no
   // File System Access API. The Export button feature-detects this at build
@@ -727,6 +733,9 @@ export function createApp(env = {}) {
     const input = hasSel ? sel : app.activeTab().sql;
     const statements = splitStatements(input);
     if (!statements.length) return; // nothing runnable (empty / comments-only)
+    // Mobile (#126): a run jumps the bottom-nav to the Results panel so the data
+    // the user just asked for is what they see next.
+    if (app.state.isMobile.value) app.state.mobileView.value = 'results';
     // >1 statement → script grid (a remembered single-result view doesn't apply).
     if (statements.length > 1) return runScript(statements, input);
     // 1 statement → today's rich path. Forward opts (e.g. a saved query's
@@ -1431,7 +1440,16 @@ export function createApp(env = {}) {
     const a = fixedAnchor(r, zoomScale(anchorEl), { viewportW: win.innerWidth || 0 });
     node.style.position = 'fixed';
     node.style.top = a.top + 'px';
-    node.style.right = a.right + 'px';
+    if (app.state.isMobile.value) {
+      // Mobile (#126): the trigger can sit mid-toolbar (the toolbar scrolls), so
+      // right-aligning to it pushes a fixed-width popover off the narrow
+      // viewport's left edge. Center it horizontally instead (still dropped below
+      // the trigger via `top`); the mobile max-width clamps keep it in-bounds.
+      node.style.left = '50%';
+      node.style.transform = 'translateX(-50%)';
+    } else {
+      node.style.right = a.right + 'px';
+    }
     doc.body.appendChild(node);
     doc.addEventListener('keydown', onKey, true);
     doc.addEventListener('mousedown', onOutside, true);
@@ -1501,6 +1519,10 @@ export function createApp(env = {}) {
   // saved pref + header icon in sync rather than flipping data-theme behind them).
   app.toggleTheme = toggleTheme;
 
+  // On mobile (#126), jump the bottom-nav to the Editor panel after an action
+  // that changes the editor content; a no-op on desktop.
+  const toEditorOnMobile = () => { if (app.state.isMobile.value) app.state.mobileView.value = 'editor'; };
+
   // --- actions registry --------------------------------------------------
   app.actions = {
     run: runEntry,
@@ -1508,7 +1530,7 @@ export function createApp(env = {}) {
     newTab: () => newTab(app),
     selectTab: (id) => selectTab(app, id),
     closeTab: (id) => closeTab(app, id),
-    loadIntoNewTab: (name, sql, savedId, chart) => loadIntoNewTab(app, name, sql, savedId, chart),
+    loadIntoNewTab: (name, sql, savedId, chart) => { loadIntoNewTab(app, name, sql, savedId, chart); toEditorOnMobile(); },
     login: (idpId, targetOrigin) => login(idpId, targetOrigin),
     connect,
     share,
@@ -1528,10 +1550,12 @@ export function createApp(env = {}) {
     cancelSchemaGraph,
     expandSchemaGraph,
     openNodeDetail,
-    insertCreate,
+    insertCreate: async (target) => { await insertCreate(target); toEditorOnMobile(); },
     openShortcuts: () => openShortcuts(app),
-    insertAtCursor: (text) => insertAtCursor(app, text),
-    replaceEditor: (text) => replaceEditor(app, text),
+    // Editor-mutating actions jump the mobile bottom-nav to the Editor panel
+    // (#126) so a schema tap / SHOW CREATE lands where the user can see it.
+    insertAtCursor: (text) => { insertAtCursor(app, text); toEditorOnMobile(); },
+    replaceEditor: (text) => { replaceEditor(app, text); toEditorOnMobile(); },
     loadColumns,
     rerenderTabs: () => renderTabs(app),
     rerenderResults: () => renderResults(app),
@@ -1554,7 +1578,6 @@ export function renderApp(app, helpers) {
   app.dom.themeBtn.appendChild(state.theme === 'dark' ? Icon.sun() : Icon.moon());
   app.dom.userBtn = h('button', { class: 'hd-btn user-btn', title: app.email(), onclick: () => app.actions.openUserMenu() },
     h('span', { class: 'user-short' }, userShortName(app.email())), Icon.chevDown());
-
   const header = h('div', { class: 'app-header' },
     h('div', { class: 'logo-mark' }, 'A'),
     h('div', { class: 'logo-name' }, 'Altinity SQL Browser'),
@@ -1564,10 +1587,13 @@ export function renderApp(app, helpers) {
     h('div', { style: { flex: '1' } }),
     app.dom.connStatus,
     h('a', {
-      class: 'hd-btn', href: 'https://github.com/Altinity/altinity-sql-browser',
+      // hd-hide-mobile: decorative/desktop-only header items are hidden below the
+      // breakpoint (#126) so the essential controls (File menu, theme, user menu)
+      // fit a phone width instead of overflowing off-screen. See styles.css.
+      class: 'hd-btn hd-hide-mobile', href: 'https://github.com/Altinity/altinity-sql-browser',
       target: '_blank', rel: 'noopener noreferrer', title: 'View source on GitHub',
     }, Icon.github()),
-    h('button', { class: 'hd-btn', title: 'Keyboard shortcuts (?)', onclick: () => app.actions.openShortcuts() }, Icon.shortcuts()),
+    h('button', { class: 'hd-btn hd-hide-mobile', title: 'Keyboard shortcuts (?)', onclick: () => app.actions.openShortcuts() }, Icon.shortcuts()),
     app.dom.themeBtn,
     app.dom.userBtn);
 
@@ -1605,7 +1631,14 @@ export function renderApp(app, helpers) {
     save: (name, value) => app.savePref(name, value),
   };
   app.dom.sideSplit = h('div', { class: 'row-resize side-split', onmousedown: (e) => helpers.startDrag(e, 'sideRow', dragCtx) });
-  sidebar.append(schemaPane, app.dom.sideSplit, savedPane);
+  // Mobile Tables view (#126): a Schema | Library segmented control at the top of
+  // the sidebar. CSS hides it above the breakpoint; below it, it swaps which pane
+  // shows (the sidebar's data-mobile-tab drives both the active-button style and
+  // the pane visibility — no JS effect needed for the active state).
+  app.dom.mobileSegmented = h('div', { class: 'mobile-segmented' },
+    h('button', { class: 'mseg-btn', 'data-seg': 'schema', onclick: () => { state.mobileTab.value = 'schema'; } }, Icon.database(), h('span', null, 'Schema')),
+    h('button', { class: 'mseg-btn', 'data-seg': 'library', onclick: () => { state.mobileTab.value = 'library'; } }, Icon.layers(), h('span', null, 'Queries')));
+  sidebar.append(app.dom.mobileSegmented, schemaPane, app.dom.sideSplit, savedPane);
   const sideHandle = h('div', { class: 'col-resize', onmousedown: (e) => helpers.startDrag(e, 'col', dragCtx) });
 
   app.dom.qtabsInner = h('div', { class: 'qtabs-inner' });
@@ -1630,10 +1663,16 @@ export function renderApp(app, helpers) {
   app.dom.editorRegion = h('div', { class: 'editor-region', style: { height: state.editorPct + '%', minHeight: '0', overflow: 'hidden', flexShrink: '0' } });
   app.dom.resultsRegion = h('div', { class: 'results-region', style: { flex: '1', minHeight: '0', overflow: 'hidden' } });
   // Drop a database/table from the schema tree here → render its lineage graph.
+  // Disabled in mobile mode (#126): native drag doesn't fire from touch, and the
+  // schema tree drops its drag sources below the breakpoint, so accepting a drop
+  // here would be a dead affordance. (Clicking a db row still draws the graph via
+  // showSchemaGraph — #124's tap-native trigger — so nothing is lost.)
   app.dom.resultsRegion.addEventListener('dragover', (e) => {
+    if (state.isMobile.value) return;
     if (e.dataTransfer && [...e.dataTransfer.types].includes(SCHEMA_GRAPH_MIME)) e.preventDefault();
   });
   app.dom.resultsRegion.addEventListener('drop', (e) => {
+    if (state.isMobile.value) return;
     const payload = e.dataTransfer && e.dataTransfer.getData(SCHEMA_GRAPH_MIME);
     if (!payload) return;
     e.preventDefault();
@@ -1643,7 +1682,22 @@ export function renderApp(app, helpers) {
 
   const workbench = h('div', { class: 'workbench' }, qtabsRow, editorToolbar, app.dom.editorRegion, app.dom.editorResultsSplit, app.dom.resultsRegion);
   app.dom.banner = h('div', { class: 'auth-banner', style: { display: 'none' } });
-  app.root.replaceChildren(header, app.dom.banner, h('div', { class: 'main-row' }, sidebar, sideHandle, workbench));
+  const mainRow = h('div', { class: 'main-row' }, sidebar, sideHandle, workbench);
+
+  // Mobile bottom-tab nav (#126): one full-screen panel at a time. CSS hides it
+  // above the breakpoint; below it, `mainRow[data-mobile-view]` (set by the
+  // effect below) picks which of sidebar / editor / results fills the screen.
+  // The Results tab carries a live badge (row count, or ● while a query streams).
+  app.dom.mobileBadge = h('span', { class: 'mnav-badge' });
+  const navBtn = (view, icon, label, extra) => h('button', {
+    class: 'mobile-nav-btn', 'data-view': view, onclick: () => { state.mobileView.value = view; },
+  }, h('span', { class: 'mnav-ic' }, icon, extra || null), h('span', { class: 'mnav-label' }, label));
+  app.dom.mobileNav = h('div', { class: 'mobile-nav' },
+    navBtn('tables', Icon.database(), 'Tables'),
+    navBtn('editor', Icon.code(), 'Editor'),
+    navBtn('results', Icon.table2(), 'Results', app.dom.mobileBadge));
+
+  app.root.replaceChildren(header, app.dom.banner, mainRow, app.dom.mobileNav);
 
   mountEditor(app, app.dom.editorRegion);
   // Reactive repaint of the tab-dependent surface — replaces the old tabs.js
@@ -1693,6 +1747,9 @@ export function renderApp(app, helpers) {
     app.state.schemaError.value;
     app.state.schemaFilter.value;
     app.state.expanded.value;
+    // Crossing the mobile breakpoint (#126) adds/removes each row's drag source
+    // and hover title, so repaint the tree when isMobile flips.
+    app.state.isMobile.value;
     renderSchema(app);
   });
   // The schema/auth-failure banner reflects schemaError (a separate surface).
@@ -1714,6 +1771,30 @@ export function renderApp(app, helpers) {
     app.state.libraryName.value;
     app.state.libraryDirty.value;
     renderLibraryTitle(app);
+  });
+  // Mobile mode (#126): mirror the viewport width into `isMobile` (drives the
+  // schema tree's drag/hover affordances, the results drop target, and the
+  // auto-navigation in the action wrappers) via the injected matchMedia seam.
+  // When the platform has no matchMedia the app stays in desktop JS mode — the
+  // mobile CSS still applies, just without JS branching.
+  const mq = app.matchMedia && app.matchMedia('(max-width: ' + MOBILE_BREAKPOINT_PX + 'px)');
+  if (mq) {
+    state.isMobile.value = mq.matches;
+    mq.addEventListener('change', (e) => { state.isMobile.value = e.matches; });
+  }
+  // Bottom-nav view switching: reflect the active mobile panel + Tables segmented
+  // choice onto data-attributes the mobile CSS keys off (a no-op above the
+  // breakpoint). Each runs once now for the initial paint.
+  effect(() => { mainRow.dataset.mobileView = state.mobileView.value; });
+  effect(() => { sidebar.dataset.mobileTab = state.mobileTab.value; });
+  // The Results nav badge: ● while a query streams, else the row count (blank for
+  // no/raw result). Same deps as the results repaint so it tracks run/tab/view.
+  effect(() => {
+    state.running.value; state.activeTabId.value; state.resultView.value;
+    const r = app.activeTab().result;
+    app.dom.mobileBadge.textContent = state.running.value
+      ? '●'
+      : (r && r.rawText == null && r.progress ? formatRows(r.progress.rows) : '');
   });
   // The shell is mounted (and laid out in a real engine), so the viewport-unit
   // overshoot is measurable now — publish --vp-zoom before any fullscreen graph
