@@ -22,7 +22,10 @@ auto-generated per-PR notes; this file is the curated, human-readable history.
   its lineage graph, via #124), write, run, read results, chart, and the four
   text/table EXPLAIN views (`Explain`/`Indexes`/`Projections`/`Estimate`).
   Fixed-width popovers (login card, file menu, autocomplete, save popover, cell
-  drawer) get mobile-safe clamps so nothing clips. A single breakpoint
+  drawer) get mobile-safe clamps so nothing clips. The editor and results
+  toolbars scroll horizontally (swipe) when their buttons don't fit a narrow
+  workbench — Run and the view tabs stay pinned left — so every control stays
+  reachable instead of being clipped off-screen. A single breakpoint
   (`MOBILE_BREAKPOINT_PX`, mirrored by the CSS `@media`) drives an injected
   `matchMedia` `isMobile` signal.
 - **Click a closed database row to draw its schema graph** (#124): expanding a

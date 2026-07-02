@@ -1080,7 +1080,15 @@ body.detached-tab .graph-overlay-panel {
   background: var(--bg-toolbar);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+  /* Swipe-scroll when the buttons don't fit a narrow workbench (mobile portrait,
+     small landscape) instead of clipping unreachably (#126). A no-op at desktop
+     widths where they fit. Keep each control full-size (overflow, don't squish);
+     the inline flex:1 spacer still collapses to 0 on overflow and grows when
+     there's room. Scrollbar hidden — the partially-cut last button is the hint. */
+  overflow-x: auto; scrollbar-width: none;
 }
+.ed-toolbar > * { flex-shrink: 0; }
+.ed-toolbar::-webkit-scrollbar { display: none; }
 .run-btn {
   height: 26px;
   padding: 0 12px 0 10px;
@@ -1316,7 +1324,13 @@ body.detached-tab .graph-overlay-panel {
   background: var(--bg-toolbar);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+  /* Same swipe-scroll as .ed-toolbar (#126). Here the no-shrink on children is
+     what makes it scroll: the tabs/stats/actions are otherwise shrinkable and
+     would compress to an unreadable smear instead of overflowing. */
+  overflow-x: auto; scrollbar-width: none;
 }
+.res-toolbar > * { flex-shrink: 0; }
+.res-toolbar::-webkit-scrollbar { display: none; }
 .view-pills {
   display: flex; background: var(--bg-chip);
   border-radius: 5px; padding: 2px;
@@ -1651,12 +1665,27 @@ table.res-table tbody tr:hover td.idx { background: var(--bg-hover); }
 .sidebar-toggle { display: none; }
 .sidebar-backdrop { display: none; }
 
-@media (max-width: 768px) {
-  /* Declutter the header so the essential controls (File menu, theme, user menu)
-     fit a phone width instead of overflowing off-screen — the logo wordmark,
-     host chip, divider, connection readout, and the GitHub/shortcuts buttons
-     (.hd-hide-mobile) are decorative or desktop-only here. */
+/* Header declutter — a wider *cosmetic* breakpoint than the stacked mobile
+   layout below (#126). The full header (logo wordmark, host chip, divider,
+   connection readout, GitHub/shortcuts) overflows a narrow width and, since the
+   shell is overflow:hidden, pushes the essential right-side controls (theme,
+   user menu) off-screen unreachably. That happens on phone *landscape* too
+   (~780px CSS — above the 768 layout breakpoint), so the declutter triggers at
+   900px while the stacked layout + overlay sidebar stay a portrait-only ≤768
+   concern (side-by-side suits wide-but-short landscape). The hidden items are
+   all decorative or desktop-only; File / theme / user menu remain. */
+@media (max-width: 900px) {
   .logo-name, .env-chip, .app-header .hd-divider, .conn-status, .hd-hide-mobile { display: none; }
+  /* Cap the user-menu label so a long local-part (`btyshkevich ▾`) can't widen
+     the header back past the viewport. */
+  .hd-btn.user-btn .user-short { max-width: 90px; }
+}
+
+@media (max-width: 768px) {
+  /* Tighten the header's gap/padding so the decluttered controls fit the
+     narrowest portrait phones (~360px), where the default 14px gaps alone
+     still overflowed. */
+  .app-header { gap: 8px; padding: 0 8px; }
 
   /* Sidebar → slide-in overlay toggled by the header .sidebar-toggle button.
      Anchored to .main-row (position:absolute), so it sits right below the header
