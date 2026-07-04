@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { webcrypto } from 'node:crypto';
 import {
   isDashboardRoute, configBase, dashboardTileSql, parseJsonResult, classifyTile,
+  normalizeDashLayout, normalizeDashCols,
 } from '../../src/core/dashboard.js';
 import {
   AUTH_SS_KEYS, AUTH_REQUEST, AUTH_GRANT,
@@ -107,6 +108,24 @@ describe('classifyTile', () => {
   });
 });
 
+describe('normalizeDashLayout', () => {
+  it('passes through known modes, defaults everything else to arrange', () => {
+    expect(normalizeDashLayout('arrange')).toBe('arrange');
+    expect(normalizeDashLayout('report')).toBe('report');
+    expect(normalizeDashLayout('grid')).toBe('arrange');
+    expect(normalizeDashLayout(undefined)).toBe('arrange');
+  });
+});
+
+describe('normalizeDashCols', () => {
+  it('passes through 2/3, defaults everything else to 3', () => {
+    expect(normalizeDashCols(2)).toBe(2);
+    expect(normalizeDashCols(3)).toBe(3);
+    expect(normalizeDashCols(4)).toBe(3);
+    expect(normalizeDashCols(NaN)).toBe(3);
+  });
+});
+
 // ── core/auth-handoff.js ─────────────────────────────────────────────────────
 function memSession(initial = {}) {
   const m = new Map(Object.entries(initial));
@@ -186,6 +205,19 @@ describe('renderDashboard', () => {
     expect(app.root.querySelectorAll('.dash-tile').length).toBe(2);
     expect(app.root.querySelector('.dash-tile canvas')).not.toBeNull();
     expect(app.root.querySelector('.dash-tile-foot').textContent).toContain('rows');
+  });
+
+  it('renders the saved description as a tile subtitle when present, omits it otherwise', async () => {
+    const favorites = [
+      { id: '1', name: 'With desc', sql: 'a', favorite: true, description: 'Daily totals by category' },
+      { id: '2', name: 'No desc', sql: 'b', favorite: true },
+    ];
+    const app = dashApp(favorites, vi.fn(async () => chartResult()));
+    await renderDashboard(app);
+    const descs = [...app.root.querySelectorAll('.dash-tile-desc')];
+    expect(descs).toHaveLength(1);
+    expect(descs[0].textContent).toBe('Daily totals by category');
+    expect(descs[0].getAttribute('title')).toBe('Daily totals by category');
   });
 
   it('uses the singular chip label with exactly one favorite', async () => {
@@ -285,6 +317,68 @@ describe('renderDashboard', () => {
     expect(app.root.querySelector('.dash-tile canvas')).not.toBeNull();
     expect(app.root.querySelector('.dash-tile .chart-config')).toBeNull(); // controls omitted, not hidden
     expect(app.root.querySelector('.dash-tile .chart-select')).toBeNull();
+  });
+
+  // ── D2: layout toolbar (Arrange/Report + column count) ──────────────────────
+  const oneFav = () => dashApp([{ id: '1', name: 'Q', sql: 'q', favorite: true }], vi.fn(async () => chartResult()));
+  const seg = (root, cls, label) =>
+    [...root.querySelectorAll('.' + cls + ' .dash-seg-btn')].find((b) => b.textContent === label);
+
+  it('defaults to Arrange (3 columns), grid not in report mode, column control shown', async () => {
+    const app = oneFav();
+    await renderDashboard(app);
+    const grid = app.root.querySelector('.dash-grid');
+    expect(grid.classList.contains('is-report')).toBe(false);
+    expect(grid.style.getPropertyValue('--dash-cols')).toBe('3');
+    expect(seg(app.root, 'dash-seg-layout', 'Arrange').classList.contains('is-active')).toBe(true);
+    expect(seg(app.root, 'dash-seg-layout', 'Report').classList.contains('is-active')).toBe(false);
+    expect(app.root.querySelector('.dash-cols-wrap').style.display).toBe('');
+    expect(seg(app.root, 'dash-seg-cols', '3').getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('switching to Report reshapes the grid, hides the column control, and persists', async () => {
+    const app = oneFav();
+    await renderDashboard(app);
+    seg(app.root, 'dash-seg-layout', 'Report').dispatchEvent(new Event('click', { bubbles: true }));
+    const grid = app.root.querySelector('.dash-grid');
+    expect(grid.classList.contains('is-report')).toBe(true);
+    expect(seg(app.root, 'dash-seg-layout', 'Report').classList.contains('is-active')).toBe(true);
+    expect(app.root.querySelector('.dash-cols-wrap').style.display).toBe('none');
+    expect(app.savePref).toHaveBeenCalledWith('dashLayout', 'report');
+    // …and back to Arrange restores the grid + column control.
+    seg(app.root, 'dash-seg-layout', 'Arrange').dispatchEvent(new Event('click', { bubbles: true }));
+    expect(grid.classList.contains('is-report')).toBe(false);
+    expect(app.root.querySelector('.dash-cols-wrap').style.display).toBe('');
+  });
+
+  it('the column-count control switches 2/3 and persists', async () => {
+    const app = oneFav();
+    await renderDashboard(app);
+    seg(app.root, 'dash-seg-cols', '2').dispatchEvent(new Event('click', { bubbles: true }));
+    const grid = app.root.querySelector('.dash-grid');
+    expect(grid.style.getPropertyValue('--dash-cols')).toBe('2');
+    expect(seg(app.root, 'dash-seg-cols', '2').classList.contains('is-active')).toBe(true);
+    expect(app.savePref).toHaveBeenCalledWith('dashCols', 2);
+  });
+
+  it('clicking the already-active layout or column is a no-op (no persist)', async () => {
+    const app = oneFav();
+    await renderDashboard(app);
+    seg(app.root, 'dash-seg-layout', 'Arrange').dispatchEvent(new Event('click', { bubbles: true }));
+    seg(app.root, 'dash-seg-cols', '3').dispatchEvent(new Event('click', { bubbles: true }));
+    expect(app.savePref).not.toHaveBeenCalled();
+  });
+
+  it('reflects the persisted layout (Report) and column count (2) on first render', async () => {
+    const app = oneFav();
+    app.state.dashLayout = 'report';
+    app.state.dashCols = 2;
+    await renderDashboard(app);
+    const grid = app.root.querySelector('.dash-grid');
+    expect(grid.classList.contains('is-report')).toBe(true);
+    expect(grid.style.getPropertyValue('--dash-cols')).toBe('2');
+    expect(app.root.querySelector('.dash-cols-wrap').style.display).toBe('none');
+    expect(seg(app.root, 'dash-seg-cols', '2').classList.contains('is-active')).toBe(true);
   });
 });
 
