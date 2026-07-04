@@ -77,11 +77,26 @@ export async function authedFetch(ctx, url, sql, signal) {
   }
 }
 
-/** Run a query and return parsed JSON (FORMAT JSON). Throws on CH error. `signal` (optional) aborts the request. */
-export async function queryJson(ctx, sql, signal) {
-  const resp = await authedFetch(ctx, chUrl(ctx.origin, { format: 'JSON' }), sql, signal);
+/**
+ * Run a query and return parsed JSON (FORMAT JSON). Throws on CH error. `signal`
+ * (optional) aborts the request. `extra` (optional) adds HTTP query-string
+ * settings (e.g. `{ readonly: 2 }` for a read-only tile).
+ */
+export async function queryJson(ctx, sql, signal, extra) {
+  const resp = await authedFetch(ctx, chUrl(ctx.origin, { format: 'JSON', extra }), sql, signal);
   if (!resp.ok) throw new Error(parseExceptionText(await resp.text()));
   return resp.json();
+}
+
+/**
+ * Run a favorite's SQL for a read-only dashboard tile (#149): `FORMAT JSON` plus
+ * the `readonly=2` HTTP setting, so a favorite that happens to contain a write
+ * (INSERT / ALTER / DROP / …) is rejected server-side rather than executed when
+ * the dashboard opens or refreshes — level 2 still permits SELECT and
+ * query-level `SETTINGS`. Returns parsed JSON; throws CH's reason on error.
+ */
+export function queryDashboardTile(ctx, sql, signal) {
+  return queryJson(ctx, sql, signal, { readonly: 2 });
 }
 
 /**
