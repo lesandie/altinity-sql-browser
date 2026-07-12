@@ -8,9 +8,10 @@ import { Icon } from './icons.js';
 import { timeAgo } from '../core/format.js';
 import { SUBQUERY_MIME } from './dnd-mime.js';
 import {
-  sortedSaved, filterSaved, filterHistory, renameSaved, toggleFavorite, deleteSaved, deleteHistory,
+  sortedSaved, filterSaved, filterHistory, renameSaved, toggleFavorite, deleteSaved, deleteHistory, SAVED_VIEWS,
 } from '../state.js';
 import { isAutoRunnable } from '../core/sql-split.js';
+import { isQuerylessPanel } from '../core/panel-cfg.js';
 
 // Make a Library/History row draggable; dropping it on the editor inserts the
 // query wrapped as a `( … )` subquery (see the editor's drop handler).
@@ -110,7 +111,19 @@ function renderSaved(app, list) {
       onclick: (e) => { e.stopPropagation(); toggleFavorite(state, q.id, app.saveJSON); renderSavedHistory(app); },
     }, Icon.star(q.favorite));
 
-    const row = h('div', { class: 'saved-row', ...dragProps(q.sql), onclick: () => { app.actions.loadIntoNewTab(q.name, q.sql, q.id, q.chart); if (isAutoRunnable(q.sql)) app.actions.run({ view: q.view }); } },
+    // Run-less view restore (#166): an entry that can't auto-run (empty SQL —
+    // a text panel — or a DDL script) still restores its remembered drawer
+    // view, so clicking a text panel actually shows the panel instead of
+    // nothing. `run({view})` handles the auto-runnable path as before.
+    const open = () => {
+      app.actions.loadIntoNewTab(q.name, q.sql, q.id, q.panel);
+      if (isAutoRunnable(q.sql)) app.actions.run({ view: q.view });
+      else if (SAVED_VIEWS.has(q.view)) app.state.resultView.value = q.view;
+      // A queryless panel without a remembered view (hand-authored/imported
+      // file) still needs the Panel drawer open, or clicking it shows nothing.
+      else if (isQuerylessPanel(q.panel)) app.state.resultView.value = 'panel';
+    };
+    const row = h('div', { class: 'saved-row', ...dragProps(q.sql), onclick: open },
       h('div', { class: 'top' },
         star,
         h('span', { class: 'name' }, q.name),

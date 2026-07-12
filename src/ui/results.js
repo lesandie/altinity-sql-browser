@@ -1,17 +1,19 @@
-// The results pane: a view switcher (Table | JSON | Chart, or a single Raw
+// The results pane: a view switcher (Table | JSON | Panel, or a single Raw
 // view for TSV/JSON output) plus the renderers. Heavy logic (sorting, axis
-// selection) lives in core/ and is reused here.
+// selection, the panel-cfg union) lives in core/ and is reused here; the
+// panel registry + drawer tab live in panels.js (#166).
 
 import { h, zoomScale, withDocument, attachBackdropClose } from './dom.js';
 import { Icon } from './icons.js';
 import { loadingPlaceholder } from './placeholder.js';
 import { formatRows, formatBytes } from '../core/format.js';
 import { looksLikeHtml, prettyValue } from '../core/cell.js';
-import { autoChart, schemaKey, chartFieldOptions, chartColors, chartJsConfig, chartCfgValid, normalizeChartCfg, unzoomChartEvent, chartRowCap } from '../core/chart-data.js';
-import { renderGridView, resizeHandle, reapplyWidths, PLAIN_KEY, GRID_VIS_CAP } from './grid-render.js';
+import { renderPanelView, renderPanelTypePicker, renderResolvedPanel } from './panels.js';
+import { renderGridView, resizeHandle, reapplyWidths, PLAIN_KEY, visCap } from './grid-render.js';
 import { EXPLAIN_VIEWS } from '../core/explain.js';
 import { SELECT_ROW_CAP } from '../core/script-result.js';
-import { RESULT_ROW_LIMIT_OPTIONS } from '../state.js';
+import { resolvePanel } from '../core/panel-cfg.js';
+import { RESULT_ROW_LIMIT_OPTIONS, tabPanel } from '../state.js';
 import { renderExplainGraph, openPipelineFullscreen, renderSchemaGraph } from './explain-graph.js';
 import { openInDetachedTab } from './detached-view.js';
 import { startDrag, clampDrawerWidth } from './splitters.js';
@@ -23,16 +25,6 @@ const EXPLAIN_ICONS = {
   pipeline: Icon.share, estimate: Icon.rows,
 };
 
-/**
- * How many rows to render: follow the result's own row cap when set (so a 10000
- * limit renders 10000), else the grid's fixed fallback. The server cap already
- * trims a normal SELECT to its limit, so this just keeps the renderers from
- * re-capping a large-but-allowed result. Pure — exported for tests.
- */
-export function visCap(r) {
-  return r.rowLimit > 0 ? r.rowLimit : GRID_VIS_CAP;
-}
-
 export function renderResults(app) {
   const region = app.dom.resultsRegion;
   if (!region) return;
@@ -41,6 +33,13 @@ export function renderResults(app) {
   if (app.chart) { app.chart.destroy(); app.chart = null; }
   const tab = app.activeTab();
   const r = tab.result;
+  // `table` remains a valid persisted/dashboard panel arm, but it has no
+  // separate workbench choice: use the ordinary Table view instead of showing
+  // two Tables or a Panel selector with an unavailable value. Normalize before
+  // building the toolbar so its active state is correct on the first paint.
+  if (app.state.resultView.value === 'panel' && tab.panelCfg && tab.panelCfg.type === 'table') {
+    app.state.resultView.value = 'table';
+  }
   const body = h('div', { class: 'results' });
   body.appendChild(buildToolbar(app, r));
 
@@ -64,16 +63,19 @@ export function renderResults(app) {
     region.replaceChildren(body);
     return;
   }
+  const view = app.state.resultView.value;
   const streamingBlank = app.state.running.value && (!r || (r.rows.length === 0 && r.rawText == null));
   if (streamingBlank) {
     inner.appendChild(loadingPlaceholder('Starting query…'));
-  } else if (!r) {
+  } else if (!r && view !== 'panel') {
+    // The Panel tab renders even with no result at all (#166): a text panel
+    // needs none, and query-backed types show their own empty-preview hint.
     inner.appendChild(h('div', { class: 'empty-results' },
       h('div', { class: 'chip' }, Icon.play()),
       h('div', null, 'Press ', h('kbd', null, '⌘↵'), ' to run query')));
-  } else if (r.error) {
+  } else if (r && r.error) {
     inner.appendChild(h('div', { class: 'results-error' }, r.error));
-  } else if (r.schemaGraph) {
+  } else if (r && r.schemaGraph) {
     // Progressive draw (#124): once Phase A resolves (tableCount known) the
     // real graph draws even while Phase B (per-view/MV EXPLAIN AST) is still
     // loading — only the pre-Phase-A window (nothing known yet, always still
@@ -81,21 +83,38 @@ export function renderResults(app) {
     inner.appendChild(r.schemaGraph.tableCount != null
       ? renderSchemaGraph(app, r)
       : loadingPlaceholder('Loading data flow…', () => app.actions.cancelSchemaGraph({ clearResult: true })));
-  } else if (r.explainView) {
+  } else if (r && r.explainView) {
     inner.appendChild(renderExplainView(app, r));
-  } else if (r.rawText != null) {
+  } else if (r && r.rawText != null) {
     inner.appendChild(h('div', { class: 'raw-text-view', tabindex: '0' }, r.rawText));
+  } else if (view === 'panel') {
+    inner.appendChild(renderPanelView(app, r, panelHooks(app, r)));
   } else if (r.rows.length === 0) {
     inner.appendChild(h('div', { class: 'placeholder' }, h('div', null, 'Query returned 0 rows.')));
-  } else if (app.state.resultView.value === 'json') {
+  } else if (view === 'json') {
     inner.appendChild(renderJson(r));
-  } else if (app.state.resultView.value === 'chart') {
-    inner.appendChild(renderChart(app, r));
   } else {
     inner.appendChild(renderTable(app, r));
   }
   body.appendChild(inner);
   region.replaceChildren(body);
+}
+// The Panel drawer tab's caller seams (#166): the repaint scope, the cell
+// drawer, the tab-dirty wiring (a panel-cfg edit dirties exactly like a SQL
+// edit — same signal writes as app.editor.onDocChange), and the display cap.
+// Supplied from here (not imported by panels.js) so panels.js never imports
+// results.js back.
+function panelHooks(app, r) {
+  return {
+    rerender: () => renderResults(app),
+    onCell: (name, type, value) => openCellDetail(app, name, type, value),
+    cap: r ? visCap(r) : undefined,
+    markDirty: () => {
+      app.activeTab().dirty = true;
+      app.actions.rerenderTabs();
+      app.updateSaveBtn();
+    },
+  };
 }
 
 // Render the active EXPLAIN view: monospace text (Explain/Indexes/Projections),
@@ -403,7 +422,8 @@ function buildToolbar(app, r) {
       h('button', { class: 'result-view-tab active' },
         r.rawFormat === 'JSON' ? Icon.json() : Icon.table2(), h('span', null, r.rawFormat)));
   } else {
-    tabs = viewSwitcherTabs(app.state.resultView.value, (id) => { app.state.resultView.value = id; });
+    tabs = viewSwitcherTabs(app.state.resultView.value, (id) => { app.state.resultView.value = id; }, false);
+    tabs.appendChild(renderPanelTypePicker(app, r, panelHooks(app, r)));
   }
   toolbar.appendChild(tabs);
   // Row-cap selector after the view tabs, for normal result queries only —
@@ -473,19 +493,20 @@ function buildToolbar(app, r) {
 }
 
 /**
- * The Table/JSON/Chart tabs — shared by the main results toolbar and the
- * detached Data Pane, each with its own view-state slot. `current` is the
+ * The Table/JSON tabs, plus the legacy/read-only Panel button when requested
+ * by the detached Data Pane. `current` is the
  * active view id; `onSelect(id)` switches it. Icons are built fresh on every
  * call (never cached/shared across the two consumers' documents — an Icon
  * element inserted into a second document would just move out of the first).
  */
-function viewSwitcherTabs(current, onSelect) {
+function viewSwitcherTabs(current, onSelect, includePanel = true) {
   const tabs = h('div', { class: 'result-view-tabs' });
-  for (const v of [
+  const views = [
     { id: 'table', label: 'Table', icon: Icon.table2() },
     { id: 'json', label: 'JSON', icon: Icon.json() },
-    { id: 'chart', label: 'Chart', icon: Icon.chart() },
-  ]) {
+  ];
+  if (includePanel) views.push({ id: 'panel', label: 'Panel', icon: Icon.chart() });
+  for (const v of views) {
     tabs.appendChild(h('button', {
       class: 'result-view-tab' + (current === v.id ? ' active' : ''),
       onclick: () => onSelect(v.id),
@@ -543,7 +564,11 @@ export function expandDataPane(app, r) {
       const isTab = doc !== mainDoc;
       if (closeBtn) bar.appendChild(closeBtn); // title bar, top-right — same slot schema/pipeline use
       const view = { current: 'table' };
-      const chartTab = {}; // local chartKey/chartCfg holder — independent of the live tab's own chart config
+      // Render-only panel snapshot (#166): the source tab's panel cfg is
+      // resolved once, at expand time — the detached pane keeps no panel
+      // editor (v1 scope), so later edits in the live tab don't leak in.
+      const panelResolved = resolvePanel(tabPanel(app.activeTab()), r.columns);
+      const panelState = {}; // the panel grid's own sort/width holder
       let sort = { col: null, dir: 'asc' }; // lives only for this opened snapshot
       const widths = {};
       let chartInstance = null;
@@ -552,17 +577,21 @@ export function expandDataPane(app, r) {
       const paint = () => withDocument(doc, () => {
         // Always destroy the previous chart before rebuilding — same reasoning
         // as renderResults' own destroy-before-rebuild (a view switch or a
-        // chart-config change re-creates it; nothing may leak its canvas/observers).
+        // panel-config change re-creates it; nothing may leak its canvas/observers).
         if (chartInstance) { chartInstance.destroy(); chartInstance = null; }
         if (view.current === 'json') {
           inner.replaceChildren(renderJson(r));
-        } else if (view.current === 'chart') {
-          inner.replaceChildren(renderChart(app, r, {
-            tab: chartTab,
+        } else if (view.current === 'panel') {
+          const { node } = renderResolvedPanel(app, panelResolved, r, {
+            surface: 'workbench',
+            state: panelState,
             rerender: paint,
+            readonly: true, // render-only: no config bar, no editor
+            cap: visCap(r),
+            onCell: (name, type, value) => openCellDetail(app, name, type, value, doc),
             setChart: (c) => { chartInstance = c; },
-            running: false, // a snapshot's own data is always already complete
-          }));
+          });
+          inner.replaceChildren(node);
         } else {
           inner.replaceChildren(renderGridView({
             columns: r.columns,
@@ -733,154 +762,4 @@ export function openCellDetail(app, name, type, value, targetDoc) {
     doc.addEventListener('keydown', onKey, true);
     return backdrop;
   });
-}
-
-/**
- * Per-tab chart config: derive defaults via autoChart the first time (or when
- * the result schema changes), then keep the user's overrides. A config restored
- * from a saved query / share link carries the schema key it was built for, so
- * when the re-run result matches that schema the restored config sticks. Returns
- * null when the result has nothing chartable.
- */
-function chartCfgFor(tab, columns) {
-  const key = schemaKey(columns);
-  if (tab.chartKey !== key) {
-    tab.chartKey = key;
-    tab.chartCfg = autoChart(columns);
-  } else if (tab.chartCfg && !chartCfgValid(tab.chartCfg, columns)) {
-    // Key matches but the config doesn't fit (a hand-edited share link or a
-    // corrupted import) — fall back to a safe default rather than crash.
-    tab.chartCfg = autoChart(columns);
-  }
-  // Fold cross-field invariants on whatever we ended up with (a restored config
-  // can be in-range yet self-contradictory, e.g. a multi-measure pie).
-  return normalizeChartCfg(tab.chartCfg);
-}
-
-/** A labelled <select> for the config bar. */
-function chartSelect(label, value, options, onChange) {
-  const sel = h('select', { class: 'chart-select', onchange: (e) => onChange(e.target.value) });
-  for (const o of options) {
-    const opt = h('option', { value: o.value }, o.label);
-    if (o.value === value) opt.selected = true;
-    sel.appendChild(opt);
-  }
-  return h('label', { class: 'chart-field' }, h('span', { class: 'chart-field-label' }, label), sel);
-}
-
-function chartEmpty(icon, msg) {
-  return h('div', { class: 'chart-empty' }, h('div', { class: 'chip' }, icon), h('div', null, msg));
-}
-
-/**
- * Make a Chart.js instance hover-correct under the page's CSS `zoom`. Chart.js
- * feeds every pointer event through the controller's single `_eventHandler`
- * entry point (a late-bound `this._eventHandler` lookup, so overriding the
- * instance property intercepts it) *before* it computes hit-testing / in-area —
- * so we divide the zoomed pointer coords back to chart space there (see
- * `unzoomChartEvent`). `zoomScale(canvas)` reads the live factor each event, so
- * it tracks theme/zoom changes and is a no-op (scale 1) when unzoomed. Returns
- * the chart. Exported for tests.
- */
-export function installChartZoomFix(chart, canvas) {
-  const onEvent = chart && chart._eventHandler;
-  if (typeof onEvent !== 'function') return chart;
-  chart._eventHandler = (e, replay) => onEvent.call(chart, unzoomChartEvent(e, zoomScale(canvas)), replay);
-  return chart;
-}
-
-/**
- * `opts.tab` holds the per-view chart config (`chartKey`/`chartCfg`) — the
- * active tab for the main results pane, or a caller-owned local object for a
- * detached snapshot (so switching chart fields there never touches the live
- * tab's own config). `opts.rerender` repaints after a config change (the
- * whole results pane by default; a caller's own local repaint otherwise).
- * `opts.setChart` receives the new Chart.js instance to store/destroy (the
- * shared `app.chart` slot by default — a detached view must use its own
- * slot instead, or closing one view's chart would tear down another's).
- * `opts.running` overrides the run-state gate — a detached snapshot's `r` is
- * always already-complete, independent of whatever the live tab is doing.
- * `opts.controls === false` omits the Type/X/Y config bar (read-only tiles).
- * `opts.hideGrid` suppresses the value-axis gridlines (dashboard tiles — #149).
- */
-export function renderChart(app, r, opts = {}) {
-  const tab = opts.tab || app.activeTab();
-  const rerender = opts.rerender || (() => renderResults(app));
-  const setChart = opts.setChart || ((c) => { app.chart = c; });
-  const running = opts.running !== undefined ? opts.running : app.state.running.value;
-  // Gate on run state BEFORE deriving the config: while a query streams its
-  // columns can be empty (pre-meta), and letting chartCfgFor see that empty
-  // schema would clobber a restored saved/shared config with autoChart(null).
-  if (running) return chartEmpty(Icon.spinner(), 'Chart renders when the query completes.');
-  const cfg = chartCfgFor(tab, r.columns);
-  if (!cfg) return chartEmpty(Icon.chart(), 'These results aren’t chartable — add a numeric column to plot them.');
-
-  // `opts.controls === false` omits the interactive Type/X/Y config bar entirely
-  // (the read-only dashboard tile — #149): the chart draws, but no field controls
-  // are built, rather than building them and hiding them with CSS.
-  let bar = null;
-  if (opts.controls !== false) {
-    const f = chartFieldOptions(r.columns, cfg);
-
-    // Each handler mutates the shared cfg (= tab.chartCfg) and re-renders;
-    // chartCfgFor folds the cross-field invariants (pie → single measure,
-    // series ≠ X) on the way back in, so the handlers don't normalize themselves.
-    bar = h('div', { class: 'chart-config' });
-    bar.appendChild(chartSelect('Type', cfg.type, f.typeOptions, (v) => { cfg.type = v; rerender(); }));
-    bar.appendChild(chartSelect('X', String(cfg.x), f.xOptions, (v) => { cfg.x = Number(v); rerender(); }));
-    bar.appendChild(chartSelect('Y', String(cfg.y[0]), f.yOptions, (v) => { cfg.y = [Number(v)]; rerender(); }));
-    if (f.showMulti) {
-      bar.appendChild(h('button', {
-        class: 'chart-toggle', title: 'Plot every numeric column as its own series',
-        onclick: () => { cfg.y = f.multiActive ? [cfg.y[0]] : f.allMeasures; rerender(); },
-      }, f.multiActive ? 'Single series' : 'All measures'));
-    }
-    if (f.showSeries) {
-      bar.appendChild(chartSelect('Series', String(cfg.series ?? ''), f.seriesOptions, (v) => {
-        cfg.series = v === '' ? null : Number(v);
-        rerender();
-      }));
-    }
-    // The chart plots at most cap points for the current type; say so when the
-    // result is bigger (the table still shows everything) — no silent
-    // truncation. Recomputed on every rerender (the Type select's onChange),
-    // so switching type re-slices and updates the note in lockstep.
-    const cap = chartRowCap(cfg.type);
-    if (r.rows.length > cap) {
-      bar.appendChild(h('span', { class: 'chart-cap-note' },
-        'first ' + cap + ' of ' + formatRows(r.rows.length) + ' rows'));
-    }
-  }
-
-  const canvas = h('canvas', null); // via h() so it lands in the right document (detached-tab safe)
-  // Plot in result (query) order — independent of the table's sort, which is a
-  // global, cross-tab setting; applying it here would reorder the X axis (a
-  // time series would zig-zag) and change which rows the type's row cap keeps,
-  // contradicting the "first N rows" note. It would also sort up to the display
-  // cap's rows just to discard all but the first `cap`.
-  const chart = installChartZoomFix(
-    new app.Chart(canvas, chartJsConfig(r.columns, r.rows, cfg, chartColors(app.cssVar), { hideGrid: opts.hideGrid })),
-    canvas);
-  setChart(chart);
-  // Chart.js's own responsive sizing reads layout through APIs (getComputedStyle,
-  // ResizeObserver) bound to the window the Chart.js module itself runs in —
-  // always the MAIN window, even when `canvas` belongs to a detached tab's own
-  // document. Cross-realm, those calls see an unlaid-out/foreign element: the
-  // canvas never gets a real size (stays 0×0), and even after an explicit
-  // resize, its bars/points never get laid out (Chart.js's resize-triggered
-  // relayout is debounced and gated on the same wrong-realm attachment check).
-  // Force one explicit resize + a `'resize'`-mode update off the canvas's own
-  // geometry (plain DOM methods — realm-agnostic) once it's actually in the
-  // live tree; the caller inserts the returned view synchronously right after
-  // this call returns, so a rAF on the canvas's *own* window (not the bare
-  // global, which would resolve to the main window's) runs after that insertion.
-  canvas.ownerDocument.defaultView.requestAnimationFrame(() => {
-    // offsetWidth/Height are already pre-html{zoom} CSS px (unlike
-    // getBoundingClientRect, see zoomScale's doc comment) — exactly what
-    // chart.resize() wants, no zoom-bridging division needed.
-    const wrap = canvas.parentElement;
-    if (wrap && wrap.offsetWidth > 0 && wrap.offsetHeight > 0) { chart.resize(wrap.offsetWidth, wrap.offsetHeight); chart.update('resize'); }
-  });
-
-  return h('div', { class: 'chart-view' }, bar, h('div', { class: 'chart-canvas-wrap' }, canvas));
 }

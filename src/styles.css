@@ -57,6 +57,12 @@ html { zoom: var(--zoom); }
   --warn-bg: rgba(217, 119, 6, .08);
   --warn-bd: rgba(217, 119, 6, .35);
   --warn-fg: #fbbf24;
+  --log-fatal: #EF4444;
+  --log-error: #F87171;
+  --log-warn: #FBBF24;
+  --log-info: #4ADE80;
+  --log-debug: #60A5FA;
+  --log-trace: #94A3B8;
 }
 
 [data-theme='light'] {
@@ -86,6 +92,12 @@ html { zoom: var(--zoom); }
   --warn-bg: #FFFBEB;
   --warn-bd: #FCD34D;
   --warn-fg: #B45309;
+  --log-fatal: #B91C1C;
+  --log-error: #DC2626;
+  --log-warn: #B45309;
+  --log-info: #15803D;
+  --log-debug: #1D4ED8;
+  --log-trace: #64748B;
 }
 
 body {
@@ -662,6 +674,19 @@ body {
 }
 .result-view-tab:hover { color: var(--fg); background: var(--bg-hover); }
 .result-view-tab.active { color: var(--fg); background: var(--bg-hover); border-color: var(--border); }
+.result-panel-select {
+  appearance: auto; height: 26px;
+  border: 1px solid transparent; border-radius: 5px;
+  background: transparent; color: var(--fg-mute);
+  font: 11.5px/1.2 var(--ui); letter-spacing: normal;
+  padding: 0 24px 0 9px; cursor: pointer;
+}
+.result-panel-select:hover,
+.result-panel-select.active { color: var(--fg); background: var(--bg-hover); border-color: var(--border); }
+.result-panel-select:focus-visible {
+  outline: none; border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 22%, transparent);
+}
 
 /* ------------ json view ------------ */
 /* height:100% (not flex:1) — .res-body is a relatively-positioned block, not a
@@ -955,6 +980,51 @@ body.detached-tab .graph-overlay-panel {
   display: flex; align-items: center; justify-content: center;
 }
 
+/* ------------ Panel drawer tab (#166) ------------ */
+.panel-view {
+  height: 100%; background: var(--bg-table);
+  display: flex; flex-direction: column; overflow: auto;
+}
+/* The type picker + per-type controls row shares the chart config bar's look
+   (its children reuse .chart-field/.chart-select). */
+.panel-config {
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  padding: 7px 14px; flex-shrink: 0;
+  border-bottom: 1px solid var(--border-faint);
+}
+.panel-config .chart-config { padding: 0; border-bottom: none; flex: 1; }
+.panel-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.panel-body > .chart-view, .panel-body > .res-table-wrap,
+.panel-body > .dash-logs, .panel-body > .panel-with-note { flex: 1; min-height: 0; }
+.panel-with-note { display: flex; flex-direction: column; }
+.panel-with-note > :last-child { flex: 1; min-height: 0; }
+.panel-note {
+  padding: 4px 14px; font-size: 11px; color: var(--fg-faint);
+  border-bottom: 1px solid var(--border-faint); flex-shrink: 0;
+}
+.panel-note.is-fallback { color: var(--warn-fg); background: var(--warn-bg); }
+/* Text panel: the Markdown editor (config area) + rendered preview below. */
+.panel-text-edit { flex: 1; min-width: 240px; display: flex; }
+.panel-text-input {
+  flex: 1; min-height: 64px; max-height: 180px; resize: vertical;
+  background: var(--bg-input); border: 1px solid var(--border); border-radius: 5px;
+  color: var(--fg); font-family: var(--mono); font-size: 11.5px;
+  padding: 6px 8px; outline: none;
+}
+.md-view { padding: 14px 18px; overflow: auto; font-size: 13px; line-height: 1.55; color: var(--fg); }
+.md-view h1, .md-view h2, .md-view h3, .md-view h4, .md-view h5, .md-view h6 {
+  margin: .6em 0 .3em; line-height: 1.25; color: var(--fg);
+}
+.md-view h1 { font-size: 20px; } .md-view h2 { font-size: 17px; } .md-view h3 { font-size: 15px; }
+.md-view h4, .md-view h5, .md-view h6 { font-size: 13px; }
+.md-view p { margin: .4em 0; }
+.md-view ul, .md-view ol { margin: .4em 0; padding-left: 22px; }
+.md-view code {
+  font-family: var(--mono); font-size: .92em;
+  background: var(--bg-chip); border-radius: 3px; padding: 1px 4px;
+}
+.md-view a { color: var(--accent); }
+
 /* ------------ schema tree ------------ */
 .schema-search {
   padding: 8px 10px;
@@ -1109,7 +1179,7 @@ body.detached-tab .graph-overlay-panel {
    row that swipe-scrolls horizontally when it overflows (many variables, or a
    narrow/mobile workbench) — never wraps to a second line and never clips. */
 .var-strip {
-  display: flex; align-items: center; gap: 14px;
+  display: flex; align-items: flex-start; gap: 14px;
   padding: 6px 10px;
   background: var(--bg-toolbar);
   border-bottom: 1px solid var(--border);
@@ -1118,20 +1188,27 @@ body.detached-tab .graph-overlay-panel {
 }
 .var-strip::-webkit-scrollbar { display: none; }
 .var-field {
-  display: inline-flex; align-items: center; gap: 6px;
+  display: inline-grid;
+  grid-template-columns: max-content max-content;
+  column-gap: 6px;
+  align-items: start;
   flex-shrink: 0;
 }
 .var-name {
+  grid-column: 1;
+  height: 24px; display: inline-flex; align-items: center;
   font-family: var(--mono); font-size: 11.5px; color: var(--fg);
   white-space: nowrap;
 }
 .var-name::after { content: ':'; color: var(--fg-mute); }
-/* Optional-variable affordance (#165): a parameter confined to optional filter
-   blocks may stay blank — blank keeps its predicates out instead of gating Run
-   or a dashboard tile. Its name is muted and suffixed with a "?" so the strip
-   reads required vs optional at a glance (the input title spells it out). */
+/* Required/optional-variable affordance (#165): a parameter confined to
+   optional filter blocks may stay blank — blank keeps its predicates out
+   instead of gating Run or a dashboard tile. Optional names are muted; a
+   required field's name is additionally marked with a leading "*" before the
+   colon (`name*:`) so the strip reads required vs optional at a glance (the
+   input title spells it out either way). */
 .var-field.is-optional .var-name { color: var(--fg-mute); }
-.var-field.is-optional .var-name::after { content: '?'; color: var(--fg-faint); }
+.var-field:not(.is-optional) .var-name::after { content: '*' ':'; }
 .var-input {
   height: 24px; width: 150px; padding: 0 8px;
   background: var(--bg-input); color: var(--fg);
@@ -1181,7 +1258,11 @@ body.detached-tab .graph-overlay-panel {
    listbox is `position: fixed` (combobox.js positions it via fixedAnchor/
    zoomScale at open time) so it escapes the horizontally-scrolling strip's
    own overflow clipping — the same trick the File/user menus use. */
-.var-combo { position: relative; display: inline-flex; flex-direction: column; }
+.var-combo {
+  grid-column: 2;
+  position: relative; display: inline-flex; flex-direction: column; align-items: flex-start;
+  gap: 1px;
+}
 .var-combo-list {
   position: fixed; z-index: 70; max-height: 260px; overflow-y: auto;
   margin: 0; padding: 4px; list-style: none;
@@ -1199,9 +1280,8 @@ body.detached-tab .graph-overlay-panel {
   color: var(--fg);
 }
 .combo-option.is-active { background: var(--bg-hover); }
-/* Live resolved-value preview (#169): pure local computation on keystroke —
-   labeled "(your time)" since it renders in the browser's own timezone,
-   which may differ from a `DateTime('tz')` column's display zone (README). */
+/* Live resolved-value preview (#169): pure local computation on keystroke.
+   It names the calculated timestamp once; the expression remains in the input. */
 .var-combo-preview {
   font-size: 10.5px; font-family: var(--mono); color: var(--fg-mute);
   padding: 2px 2px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px;
@@ -1887,7 +1967,7 @@ table.res-table tbody tr:hover td.idx { background: var(--bg-hover); }
    workbench's var-field/var-name/var-input classes. Sits in the toolbar's
    existing flex-wrap row (no new sticky/scroll container needed); absent
    entirely (display:none, no gap) when no favorite has a param. */
-.dash-filters { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.dash-filters { display: flex; align-items: flex-start; gap: 14px; flex-wrap: wrap; }
 .dash-icobtn {
   width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;
   background: var(--bg-chip); color: var(--fg-mute); border: 1px solid var(--border);
@@ -1952,6 +2032,37 @@ table.res-table tbody tr:hover td.idx { background: var(--bg-hover); }
 }
 .dash-tile-body { flex: 1; min-height: 0; padding: 6px 8px; display: flex; }
 .dash-tile-body > .chart-view { flex: 1; min-width: 0; }
+/* Table/logs tiles (#149 D9): explicit flex constraints so content scrolls
+   inside the tile instead of clipping; the workbench grid's height:100% is
+   overridden back to auto (flex sizes it here). */
+.dash-tile-body > .res-table-wrap,
+.dash-tile-body > .dash-logs { flex: 1; min-width: 0; min-height: 0; }
+.dash-tile-body > .res-table-wrap { height: auto; }
+/* Logs view (#149 D9): a compact, scroll-only reading surface — level colors
+   via the --log-* theme vars, monospace, wrapped messages. */
+.dash-logs {
+  overflow: auto; font-family: var(--mono); font-size: 11px; line-height: 1.5;
+}
+.log-row {
+  display: flex; gap: 8px; align-items: baseline;
+  padding: 2px 8px 2px 6px; border-left: 3px solid transparent;
+}
+.log-row.log-fatal { border-left-color: var(--log-fatal); }
+.log-row.log-fatal .log-level { color: var(--log-fatal); }
+.log-row.log-error { border-left-color: var(--log-error); }
+.log-row.log-error .log-level { color: var(--log-error); }
+.log-row.log-warn { border-left-color: var(--log-warn); }
+.log-row.log-warn .log-level { color: var(--log-warn); }
+.log-row.log-info { border-left-color: var(--log-info); }
+.log-row.log-info .log-level { color: var(--log-info); }
+.log-row.log-debug { border-left-color: var(--log-debug); }
+.log-row.log-debug .log-level { color: var(--log-debug); }
+.log-row.log-trace { border-left-color: var(--log-trace); }
+.log-row.log-trace .log-level { color: var(--log-trace); }
+.log-time { white-space: nowrap; color: var(--fg-faint); }
+.log-level { text-transform: uppercase; font-weight: 600; flex-shrink: 0; }
+.log-msg { white-space: pre-wrap; word-break: break-word; color: var(--fg); }
+.log-extras { color: var(--fg-faint); }
 /* The chart draws on the tile's own background (--bg-side), not the darker
    results-table bg the workbench chart view uses; this both matches the design
    and lets the faint value-axis gridlines recede instead of standing out on a
@@ -1960,6 +2071,10 @@ table.res-table tbody tr:hover td.idx { background: var(--bg-hover); }
 .dash-tile-load {
   display: flex; align-items: center; gap: 8px; margin: auto;
   color: var(--fg-faint); font-size: 12px;
+}
+.dash-tile-empty {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  color: var(--fg-faint); font-size: 12px; font-family: var(--mono);
 }
 .dash-tile-error {
   margin: auto; padding: 12px; color: var(--error-fg); background: var(--error-bg);

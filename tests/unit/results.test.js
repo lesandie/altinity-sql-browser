@@ -1,8 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import { renderResults, renderJson, renderTable, renderChart, openCellDetail, openRowsViewer, installChartZoomFix, visCap, expandDataPane } from '../../src/ui/results.js';
+import { renderResults, renderJson, renderTable, openCellDetail, openRowsViewer, expandDataPane } from '../../src/ui/results.js';
 import { makeApp } from '../helpers/fake-app.js';
 import { newResult } from '../../src/core/stream.js';
-import { schemaKey, chartRowCap } from '../../src/core/chart-data.js';
 
 const click = (el) => el.dispatchEvent(new Event('click', { bubbles: true }));
 // A genuine backdrop click: mousedown and click both land on `el` itself
@@ -118,10 +117,20 @@ describe('renderResults states', () => {
     renderResults(app);
     expect(app.dom.resultsRegion.querySelector('.json-view').textContent).toContain('"n": "2"');
   });
-  it('chart view', () => {
-    const app = appWithResult(tableResult(), { resultView: 'chart' });
+  it('panel view renders its picker in the toolbar + auto preview', () => {
+    const app = appWithResult(tableResult(), { resultView: 'panel' });
     renderResults(app);
-    expect(app.dom.resultsRegion.querySelector('.chart-view')).not.toBeNull();
+    const region = app.dom.resultsRegion;
+    expect(region.querySelector('.panel-view')).not.toBeNull();
+    expect(region.querySelector('.result-panel-select')).not.toBeNull();
+    expect(region.querySelector('.panel-config')).toBeNull(); // no redundant full-width picker row
+    expect(region.querySelector('.chart-view canvas')).not.toBeNull();   // autoPanel picked a chart
+    expect(app.activeTab().panelCfg).toBeNull(); // preview never writes the tab cfg (#166 dirty pin)
+  });
+  it('panel view with no result shows the run hint (query-backed types need a Run)', () => {
+    const app = appWithResult(null, { resultView: 'panel' });
+    renderResults(app);
+    expect(app.dom.resultsRegion.textContent).toContain('Run the query');
   });
   it('clicking a view tab switches the view', () => {
     const app = appWithResult(tableResult(), { resultView: 'table' });
@@ -216,10 +225,6 @@ describe('renderTable', () => {
 });
 
 describe('result row cap', () => {
-  it('visCap follows the result row limit, else the 5000 fallback', () => {
-    expect(visCap({ rowLimit: 10000 })).toBe(10000);
-    expect(visCap({ rowLimit: 0 })).toBe(5000);
-  });
   it('renders the row-limit selector reflecting the current limit; changing it re-runs', () => {
     const app = appWithResult(tableResult(), { resultRowLimit: 1000 });
     renderResults(app);
@@ -590,7 +595,7 @@ describe('expandDataPane', () => {
     expandDataPane(app, r);
     const overlay = document.querySelector('.graph-overlay');
     const tabLabels = () => [...overlay.querySelectorAll('.result-view-tab')].map((b) => b.textContent);
-    expect(tabLabels()).toEqual(['Table', 'JSON', 'Chart']);
+    expect(tabLabels()).toEqual(['Table', 'JSON', 'Panel']);
     expect(overlay.querySelector('.result-view-tab.active').textContent).toBe('Table');
 
     // JSON
@@ -599,10 +604,10 @@ describe('expandDataPane', () => {
     expect(overlay.querySelector('.result-view-tab.active').textContent).toBe('JSON');
     expect(overlay.querySelector('.res-table')).toBeNull(); // grid torn down
 
-    // Chart
-    click([...overlay.querySelectorAll('.result-view-tab')].find((b) => b.textContent === 'Chart'));
+    // Panel (read-only render of the source tab's resolved panel — #166 v1)
+    click([...overlay.querySelectorAll('.result-view-tab')].find((b) => b.textContent === 'Panel'));
     expect(overlay.querySelector('.chart-view canvas')).not.toBeNull();
-    expect(overlay.querySelector('.result-view-tab.active').textContent).toBe('Chart');
+    expect(overlay.querySelector('.result-view-tab.active').textContent).toBe('Panel');
 
     // switching away destroys the chart instance (no leaked canvas/observers)
     const chartBefore = overlay.querySelector('canvas');
@@ -612,32 +617,40 @@ describe('expandDataPane', () => {
     expect(chartBefore).not.toBeNull(); // sanity: we did have a canvas to lose
   });
 
-  it("the snapshot's chart config is local — switching it never touches the live tab's own chartCfg/chartKey", () => {
+  it('the snapshot panel is render-only: no config bar, and the shared app.chart slot stays free', () => {
     const app = makeApp();
     const r = chartResult();
     expandDataPane(app, r);
     const overlay = document.querySelector('.graph-overlay');
-    click([...overlay.querySelectorAll('.result-view-tab')].find((b) => b.textContent === 'Chart'));
-    const typeSelect = overlay.querySelector('.chart-config select');
-    typeSelect.value = 'pie';
-    typeSelect.dispatchEvent(new Event('change', { bubbles: true }));
-    expect(overlay.querySelector('.chart-view canvas')).not.toBeNull(); // re-rendered locally, no throw
-    expect(app.activeTab().chartCfg).toBeNull(); // the live tab's own config is untouched
+    click([...overlay.querySelectorAll('.result-view-tab')].find((b) => b.textContent === 'Panel'));
+    expect(overlay.querySelector('.chart-view canvas')).not.toBeNull();
+    expect(overlay.querySelector('.chart-config')).toBeNull(); // readonly — no editor (v1 scope)
+    expect(overlay.querySelector('.panel-config')).toBeNull();
+    expect(app.activeTab().panelCfg).toBeNull(); // the live tab's own config is untouched
     expect(app.chart).toBeNull(); // the snapshot's chart never occupies the shared app.chart slot
   });
+  it("the snapshot honours the source tab's saved panel type (a table panel renders the grid)", () => {
+    const app = makeApp();
+    app.activeTab().panelCfg = { type: 'table' };
+    expandDataPane(app, chartResult());
+    const overlay = document.querySelector('.graph-overlay');
+    click([...overlay.querySelectorAll('.result-view-tab')].find((b) => b.textContent === 'Panel'));
+    expect(overlay.querySelector('.res-table')).not.toBeNull(); // grid, not the auto chart
+    expect(overlay.querySelector('canvas')).toBeNull();
+  });
 
-  it('running a new query in the main tab does not blank the snapshot\'s Chart view', () => {
+  it('running a new query in the main tab does not blank the snapshot\'s Panel view', () => {
     const app = makeApp();
     const r = chartResult();
     expandDataPane(app, r);
     const overlay = document.querySelector('.graph-overlay');
     app.state.running.value = true; // a different, unrelated query starts in the main window
-    click([...overlay.querySelectorAll('.result-view-tab')].find((b) => b.textContent === 'Chart'));
+    click([...overlay.querySelectorAll('.result-view-tab')].find((b) => b.textContent === 'Panel'));
     expect(overlay.querySelector('.chart-view canvas')).not.toBeNull(); // not the "renders when complete" placeholder
     expect(overlay.textContent).not.toContain('renders when the query completes');
   });
 
-  it('closing the overlay while on Chart view destroys the chart instance (teardown)', () => {
+  it('closing the overlay while on Panel view destroys the chart instance (teardown)', () => {
     const app = makeApp();
     const instances = [];
     const RealChart = app.Chart;
@@ -645,7 +658,7 @@ describe('expandDataPane', () => {
     const r = chartResult();
     expandDataPane(app, r);
     const overlay = document.querySelector('.graph-overlay');
-    click([...overlay.querySelectorAll('.result-view-tab')].find((b) => b.textContent === 'Chart'));
+    click([...overlay.querySelectorAll('.result-view-tab')].find((b) => b.textContent === 'Panel'));
     expect(instances).toHaveLength(1);
     expect(instances[0].destroyed).toBe(false);
     overlay.querySelector('.graph-overlay-close').dispatchEvent(new Event('click', { bubbles: true }));
@@ -676,216 +689,6 @@ function chartResult() {
   r.progress = { rows: 2, bytes: 100, elapsed_ns: 5e6 };
   return r;
 }
-const fieldSel = (el, label) => [...el.querySelectorAll('.chart-field')]
-  .find((f) => f.querySelector('.chart-field-label').textContent === label).querySelector('select');
-const change = (sel, value) => { sel.value = value; sel.dispatchEvent(new Event('change', { bubbles: true })); };
-
-describe('renderChart', () => {
-  it('shows a not-chartable hint when no measure exists', () => {
-    const r = newResult('Table');
-    r.columns = [{ name: 'a', type: 'String' }];
-    r.rows = [['x']];
-    const app = appWithResult(r, { resultView: 'chart' });
-    expect(renderChart(app, r).textContent).toContain('aren’t chartable');
-  });
-  it('shows a "renders when complete" hint while the query is still running', () => {
-    const app = appWithResult(tableResult(), { resultView: 'chart', running: true });
-    expect(renderChart(app, app.activeTab().result).textContent).toContain('renders when the query completes');
-  });
-  it('builds a config bar and instantiates Chart.js on a canvas (categorical → hbar default)', () => {
-    const app = appWithResult(tableResult(), { resultView: 'chart' });
-    renderResults(app);
-    const view = app.dom.resultsRegion.querySelector('.chart-view');
-    expect(view.querySelector('canvas')).not.toBeNull();
-    expect(app.chart).not.toBeNull();
-    expect(app.chart.config.type).toBe('bar'); // hbar maps to bar + indexAxis y
-    expect(app.chart.config.options.indexAxis).toBe('y');
-    expect(app.activeTab().chartCfg).toMatchObject({ type: 'hbar', x: 1, y: [0] });
-  });
-  it('keeps a restored chart config when its schema key matches the result (saved/shared restore)', () => {
-    const r = chartResult();
-    const app = appWithResult(r, { resultView: 'chart' });
-    const tab = app.activeTab();
-    tab.chartKey = schemaKey(r.columns);
-    tab.chartCfg = { type: 'pie', x: 0, y: [2], series: null }; // a deliberate non-default
-    renderResults(app);
-    expect(app.activeTab().chartCfg).toEqual({ type: 'pie', x: 0, y: [2], series: null }); // not re-derived
-    expect(app.chart.config.type).toBe('pie');
-  });
-  it('falls back to autoChart when a restored config does not fit the schema (hand-edited link)', () => {
-    const r = chartResult();
-    const app = appWithResult(r, { resultView: 'chart' });
-    const tab = app.activeTab();
-    tab.chartKey = schemaKey(r.columns);
-    tab.chartCfg = { type: 'bar', x: 99, y: [1], series: null }; // x out of range
-    renderResults(app);
-    expect(app.activeTab().chartCfg.x).toBeLessThan(r.columns.length); // guard re-derived a safe default
-    expect(app.chart).not.toBeNull();
-  });
-  it('Type select switches renderer; non-pie keeps series, pie resets it to single-measure', () => {
-    const app = appWithResult(chartResult(), { resultView: 'chart' });
-    renderResults(app);
-    // group-by first so we can prove pie clears it
-    change(fieldSel(app.dom.resultsRegion, 'Series'), '1');
-    expect(app.activeTab().chartCfg.series).toBe(1);
-    change(fieldSel(app.dom.resultsRegion, 'Type'), 'line'); // non-pie branch
-    expect(app.activeTab().chartCfg.type).toBe('line');
-    change(fieldSel(app.dom.resultsRegion, 'Type'), 'pie'); // pie branch resets series
-    expect(app.activeTab().chartCfg).toMatchObject({ type: 'pie', series: null });
-    expect(fieldSel(app.dom.resultsRegion, 'Type')).not.toBeNull();
-    expect([...app.dom.resultsRegion.querySelectorAll('.chart-field-label')].map((s) => s.textContent))
-      .not.toContain('Series'); // series control hidden for pie
-  });
-  it('X and Y selects update the per-tab config', () => {
-    const app = appWithResult(chartResult(), { resultView: 'chart' });
-    renderResults(app);
-    change(fieldSel(app.dom.resultsRegion, 'X'), '1');
-    expect(app.activeTab().chartCfg.x).toBe(1);
-    change(fieldSel(app.dom.resultsRegion, 'Y'), '3');
-    expect(app.activeTab().chartCfg.y).toEqual([3]);
-  });
-  it('"All measures" toggles between single and multi-series', () => {
-    const app = appWithResult(chartResult(), { resultView: 'chart' });
-    renderResults(app);
-    const btn = () => [...app.dom.resultsRegion.querySelectorAll('.chart-toggle')][0];
-    expect(btn().textContent).toBe('All measures');
-    click(btn());
-    expect(app.activeTab().chartCfg.y).toEqual([2, 3]);
-    expect(app.chart.config.data.datasets).toHaveLength(2);
-    expect(btn().textContent).toBe('Single series');
-    click(btn());
-    expect(app.activeTab().chartCfg.y).toEqual([2]);
-  });
-  it('Series select sets and clears a group-by dimension', () => {
-    const app = appWithResult(chartResult(), { resultView: 'chart' });
-    renderResults(app);
-    change(fieldSel(app.dom.resultsRegion, 'Series'), '1');
-    expect(app.activeTab().chartCfg.series).toBe(1);
-    change(fieldSel(app.dom.resultsRegion, 'Series'), '');
-    expect(app.activeTab().chartCfg.series).toBeNull();
-  });
-  it('notes the row cap when the result is larger than the chart shows', () => {
-    const r = newResult('Table');
-    r.columns = [{ name: 'k', type: 'String' }, { name: 'v', type: 'UInt64' }];
-    r.rows = Array.from({ length: 600 }, (_, i) => ['k' + i, String(i)]);
-    r.progress = { rows: 600, bytes: 100, elapsed_ns: 5e6 };
-    const app = appWithResult(r, { resultView: 'chart' });
-    renderResults(app);
-    const note = app.dom.resultsRegion.querySelector('.chart-cap-note');
-    expect(note).not.toBeNull();
-    expect(note.textContent).toContain('first 500 of');
-    // a small result shows no cap note
-    const small = appWithResult(tableResult(), { resultView: 'chart' });
-    renderResults(small);
-    expect(small.dom.resultsRegion.querySelector('.chart-cap-note')).toBeNull();
-  });
-  it('switching chart type re-slices to the new type\'s cap and updates the note', () => {
-    const r = newResult('Table');
-    r.columns = [{ name: 'k', type: 'String' }, { name: 'v', type: 'UInt64' }];
-    r.rows = Array.from({ length: 600 }, (_, i) => ['k' + i, String(i)]);
-    r.progress = { rows: 600, bytes: 100, elapsed_ns: 5e6 };
-    const app = appWithResult(r, { resultView: 'chart' });
-    renderResults(app);
-    // default (hbar, autoChart's categorical pick) cap is 500 < 600 rows
-    expect(app.activeTab().chartCfg.type).toBe('hbar');
-    expect(app.dom.resultsRegion.querySelector('.chart-cap-note').textContent)
-      .toBe('first ' + chartRowCap('hbar') + ' of 600 rows');
-    expect(app.chart.config.data.labels).toHaveLength(chartRowCap('hbar'));
-    // switch to pie: a much tighter legibility cap — re-slices and the note shrinks with it
-    change(fieldSel(app.dom.resultsRegion, 'Type'), 'pie');
-    expect(app.dom.resultsRegion.querySelector('.chart-cap-note').textContent).toContain('first ' + chartRowCap('pie') + ' of');
-    expect(app.chart.config.data.labels).toHaveLength(chartRowCap('pie'));
-    // switch to line: its cap (5000) exceeds the row count — no truncation, no note at all
-    change(fieldSel(app.dom.resultsRegion, 'Type'), 'line');
-    expect(app.dom.resultsRegion.querySelector('.chart-cap-note')).toBeNull();
-    expect(app.chart.config.data.labels).toHaveLength(600);
-  });
-  it('destroys the previous Chart instance on re-render, and re-derives config on a new schema', () => {
-    const app = appWithResult(chartResult(), { resultView: 'chart' });
-    renderResults(app);
-    const first = app.chart;
-    const cfg = app.activeTab().chartCfg;
-    renderResults(app); // stable schema → keep config, swap chart instance
-    expect(first.destroyed).toBe(true);
-    expect(app.chart).not.toBe(first);
-    expect(app.activeTab().chartCfg).toBe(cfg);
-    app.activeTab().result = tableResult(); // different schema → re-derive
-    renderResults(app);
-    expect(app.activeTab().chartCfg).not.toBe(cfg);
-  });
-  it('does not re-derive (clobber) a restored config while the query is still running', () => {
-    // running + rows already streamed: the run-state guard must fire BEFORE
-    // chartCfgFor, so a still-settling result can't stamp a new key / autoChart
-    // over the restored saved/shared config.
-    const app = appWithResult(chartResult(), { resultView: 'chart', running: true });
-    const tab = app.activeTab();
-    const restored = { type: 'pie', x: 0, y: [2], series: null };
-    tab.chartCfg = restored;
-    tab.chartKey = 'STALE_KEY'; // deliberately != schemaKey(result.columns)
-    renderResults(app);
-    expect(app.dom.resultsRegion.textContent).toContain('renders when the query completes');
-    expect(tab.chartCfg).toBe(restored); // untouched — chartCfgFor never ran
-    expect(tab.chartKey).toBe('STALE_KEY');
-  });
-  it('normalizes a restored, self-contradictory pie config (multi-measure + series) on render', () => {
-    const r = chartResult();
-    const app = appWithResult(r, { resultView: 'chart' });
-    const tab = app.activeTab();
-    tab.chartKey = schemaKey(r.columns); // in-range but invalid combination
-    tab.chartCfg = { type: 'pie', x: 0, y: [2, 3], series: 1 };
-    renderResults(app);
-    expect(app.activeTab().chartCfg).toEqual({ type: 'pie', x: 0, y: [2], series: null });
-    expect(app.chart.config.data.datasets).toHaveLength(1); // single pie dataset
-  });
-  it('clears the series when the X column is changed to equal it', () => {
-    const app = appWithResult(chartResult(), { resultView: 'chart' });
-    renderResults(app);
-    change(fieldSel(app.dom.resultsRegion, 'Series'), '1'); // series = region(1)
-    expect(app.activeTab().chartCfg.series).toBe(1);
-    change(fieldSel(app.dom.resultsRegion, 'X'), '1'); // X now equals series → series cleared
-    expect(app.activeTab().chartCfg.x).toBe(1);
-    expect(app.activeTab().chartCfg.series).toBeNull();
-  });
-  it("forces an explicit resize + 'resize'-mode update once attached, working around Chart.js's cross-window responsive sizing", async () => {
-    const app = appWithResult(chartResult(), { resultView: 'chart' });
-    renderResults(app);
-    const canvas = app.dom.resultsRegion.querySelector('canvas');
-    const wrap = canvas.parentElement;
-    Object.defineProperty(wrap, 'offsetWidth', { value: 640, configurable: true });
-    Object.defineProperty(wrap, 'offsetHeight', { value: 320, configurable: true });
-    await new Promise((resolve) => window.requestAnimationFrame(resolve)); // let the scheduled rAF run
-    expect(app.chart.lastResize).toEqual([640, 320]);
-    expect(app.chart.lastUpdateMode).toBe('resize');
-  });
-  it('skips the forced resize when the container never gets a real size (e.g. torn down before the rAF fires)', async () => {
-    const app = appWithResult(chartResult(), { resultView: 'chart' });
-    renderResults(app);
-    const chart = app.chart;
-    await new Promise((resolve) => window.requestAnimationFrame(resolve)); // offsetWidth/Height are 0 in happy-dom by default
-    expect(chart.lastResize).toBeUndefined();
-    expect(chart.lastUpdateMode).toBeUndefined();
-  });
-});
-
-describe('installChartZoomFix', () => {
-  it('undoes the page CSS zoom on pointer events before Chart.js hit-tests them', () => {
-    const app = appWithResult(tableResult(), { resultView: 'chart' });
-    renderResults(app);
-    const canvas = app.chart.canvas;
-    // Simulate html{zoom:1.2}: rect (zoomed) is 1.2× the layout offsetWidth.
-    canvas.getBoundingClientRect = () => ({ width: 120, height: 60, left: 0, top: 0, right: 120, bottom: 60 });
-    Object.defineProperty(canvas, 'offsetWidth', { value: 100, configurable: true });
-    app.chart._eventHandler({ x: 120, y: 60 }, false); // right edge in zoomed px
-    expect(app.chart.lastEvent.x).toBeCloseTo(100); // mapped back into 0..100 chart space
-    expect(app.chart.lastEvent.y).toBeCloseTo(50);
-    expect(app.chart.lastReplay).toBe(false);
-  });
-  it('returns the instance untouched when it has no event handler (or is nullish)', () => {
-    const chart = { config: {} }; // no _eventHandler
-    expect(installChartZoomFix(chart, document.createElement('canvas'))).toBe(chart);
-    expect(installChartZoomFix(null, null)).toBeNull();
-  });
-});
 
 describe('EXPLAIN views', () => {
   function explainResult(view, over = {}) {
