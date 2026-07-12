@@ -76,6 +76,20 @@ Touch these in one change:
 | `deploy/*` | install/uninstall + `http_handlers.xml` |
 | `tests/unit/*` | one spec per module (vitest + happy-dom) |
 
+## Knowledge base (project wiki)
+
+The distilled maintainer/agent knowledge base is the **GitHub project wiki**, not a
+directory in this repo. Clone it alongside the code and start at `Home.md`:
+
+```sh
+git clone https://github.com/Altinity/altinity-sql-browser.wiki.git .wiki   # branch: master
+```
+
+`.wiki/` is gitignored here (separate `repo.wiki.git`); push wiki edits to that
+remote, never into this repo. It maps architecture, workflow, decisions, deployment,
+and operational lessons back to their canonical sources (this file, `docs/*`, issues).
+`.wiki/Maintaining-This-Wiki.md` explains how to use and update it.
+
 ## Conventions
 
 Pure-by-construction modules, injected side-effect seams, per-file coverage

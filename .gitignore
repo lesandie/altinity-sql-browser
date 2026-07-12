@@ -17,6 +17,9 @@
 # Reference material (the verbatim deployed SPA, kept locally for diffing)
 /reference/
 
+# Project wiki — a separate GitHub repo.wiki.git checkout, not part of this repo
+/.wiki/
+
 # OS / editor
 .DS_Store
 *.log
