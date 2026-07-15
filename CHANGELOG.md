@@ -9,7 +9,90 @@ auto-generated per-PR notes; this file is the curated, human-readable history.
 
 ## [Unreleased]
 
-## [0.4.5] - 2026-07-14
+### Added
+- **Favorited saved queries can now act as Dashboard Filter sources** (#160).
+  One explicit read-only query returns exactly one row containing any number of
+  `Array(T)`, `Array(Tuple(value T, label L))`, or `Map(K,V)` helpers. Exact
+  result-column names upgrade matching Dashboard parameters to strict,
+  searchable single-select controls; invalid sources and provider conflicts
+  fall back per field without delaying or removing unrelated panels. Filter
+  requests run and reconcile persisted activation before Panel requests start,
+  with bounded concurrency, cancellation generations, Refresh, and source Retry.
+  The workbench result selector is role-aware, preserves dormant Panel config,
+  and provides a completed-run-only Filter preview without changing shared
+  Dashboard values.
+- `examples/query-log-explorer.json` — a worked Dashboard Filter sources demo
+  against `system.query_log` on any cluster: one Filter source per option
+  shape (`Array(Tuple(value, label))`, `Map(String, String)`, plain
+  `Array(T)`), plain auto-detected fields alongside them, a KPI panel, four
+  analytical Panels adapted from the Altinity KB's ["Handy queries for
+  system.query_log"](https://kb.altinity.com/altinity-kb-useful-queries/query_log/),
+  a Logs panel, and a Text panel explaining the demo.
+
+### Fixed
+- Review follow-ups on the Dashboard Filter sources work above, found in a
+  UI/UX pass on #232 before merge: a curated field's clear (×) button now
+  reports the cleared value (not the stale prior selection) to
+  `varValues`/`filterActive`, and gets an `aria-label` naming the field it
+  clears instead of an anonymous "×" (this is what the e2e suite was actually
+  catching — same bug, both assertions). The clear button is icon-based and
+  positioned inside the field like every other clear affordance, instead of
+  falling into normal flow below the input. The Dashboard's role/Filter
+  diagnostic banners (`.dash-config-diagnostic`, e.g. "Filter helper … has no
+  current Panel consumer") and the workbench Filter preview's type/diagnostic
+  text now have real styling — both referenced undefined CSS variables and
+  rendered as unstyled body text. The tab-strip/Library "Filter" role badge no
+  longer reads as a second open tab (it shared the bordered `.qtab` row with no
+  styling of its own). `Enum8`/`Enum16` and `LowCardinality(...)` columns are
+  now recognized as valid Filter/KPI scalar types (the type parser rejected
+  Enum's quoted member list and never unwrapped `LowCardinality`). A Filter or
+  KPI query's Table/JSON view no longer shows `[object Object]` for named-tuple
+  columns serialized as objects. A curated field now gets the same
+  is-invalid/conflict affordance a plain filter field does. A real pointer
+  click on the clear button double-committed (mousedown blurred the input
+  before the click handler ran); fixed with the same commit-before-blur
+  `preventDefault` pattern `combobox.js` already uses for option commits. A
+  curated field never got the `is-optional` CSS class, so it always showed
+  the required-field asterisk even when its param was genuinely optional.
+- A second pre-merge cleanup pass on #232 removing invented primitives and
+  duplication, and fixing bugs found alongside them:
+  - The curated Filter field (Dashboard filter bar **and** the bottom-drawer
+    Filter preview) is rewritten to reuse the shared `var-combo` combobox
+    primitive (`combobox.js`'s `createCombobox`/`wireComboInput`, the same
+    `.var-combo`/`.var-input`/`.var-combo-list` clothes the enum/recent/
+    relative-time fields wear). It previously hand-rolled its own listbox with
+    CSS classes that did not exist, so the dropdown rendered as an unstyled
+    inline bulleted list that pushed the clear (×) button out of place.
+  - The `{severity, code, message, …}` diagnostic factory duplicated across
+    three Filter modules is now one shared `core/diagnostics.js` helper (#236).
+  - Filter sources reuse the tile wave's generation/abort guard
+    (`supersedeSlot`/`slot.gen`) instead of a parallel re-implementation (#237).
+  - Curated Filter fields are seeded from a persisted last-known bundle
+    (`asb:filterCurated`) so they paint as the searchable dropdown immediately
+    instead of flashing a plain text input for one frame on each load (#234).
+  - The result-presentation picker no longer breaks for a `table`-typed panel:
+    it mapped to a `panel:table` value that matched no option, leaving the
+    select blank with no way back to Table — a table panel now resolves to the
+    `(auto)` entry (Table's surface remains the adjacent Table view).
+  - Typing SQL now re-evaluates the whole Spec validator graph only for
+    Filter-role tabs (whose diagnostics depend on the SQL), not on every
+    keystroke of every tab.
+  - The result-presentation `<select>` now switches the drawer to a preview
+    **consistently**: it shows a `Preview…` placeholder while on Table/JSON, so
+    picking *any* entry (a chart, Logs, KPI, Text, or the Filter role) — even the
+    query's current one — is a real `change` that switches to that preview.
+    Previously it reflected the current type/role, so re-picking it fired no
+    event and the view never switched.
+  - The Filter drawer preview is now a **result-grid** consistent with the
+    Table/JSON views — columns `name · options · type · example`, with the
+    interactive per-helper combobox in the `example` cell (no clear ×).
+- `examples/query-log-explorer.json` reworked: the `hours` lookback is replaced
+  by a real DateTime range — `from` (required) and `to` (optional) on
+  `event_time` — applied to every `system.query_log` panel; `namePattern` is
+  replaced by a universal optional `search` over the query text (and the
+  exception message in the log panel); the three per-shape Filter favorites are
+  consolidated into a **single** `Filter` source returning `user` + `query_kind`,
+  and the exception-code Filter and "Errors over time" panel are removed.
 
 ### Changed
 - **Saved-query Library JSON now uses the version 2 canonical model** (#211):

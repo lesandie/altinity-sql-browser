@@ -16,6 +16,7 @@ import { buildRelativeTimeField } from './relative-time-field.js';
 import { buildRecentField } from './recent-field.js';
 import { buildEnumField } from './enum-field.js';
 import { wireComboInput } from './combobox.js';
+import { buildFilterOptionField } from './filter-option-field.js';
 
 // Idle time after the last keystroke in a filter field before it triggers a
 // re-run (#149 D3) — longer than the FROM-scope column-load debounce
@@ -57,6 +58,31 @@ export function buildFilterBar(app, params, onCommit, getField, options = {}) {
     const baseTitle = p.name + ': ' + p.type
       + (p.optional ? ' — optional: blank leaves its filter block out' : '')
       + (conflictNote ? ' — ' + conflictNote : '');
+    const curated = options.curatedFields?.[p.name];
+    if (curated) {
+      const field = buildFilterOptionField({
+        document, name: p.name, options: curated.options,
+        value: app.state.varValues[p.name] ?? '', active: !!app.state.filterActive[p.name],
+        inactiveLabel: p.optional ? 'All' : 'Not set',
+        onValueChange: (value, active) => {
+          app.state.varValues[p.name] = value;
+          app.state.filterActive[p.name] = active;
+          app.saveVarValues();
+          app.saveFilterActive();
+        },
+        onCommit: () => onCommit(p.name),
+      });
+      field.input.title = baseTitle;
+      if (conflictNote) field.input.classList.add('is-conflict');
+      // Same shared invalid-field affordance the plain-text branch gets below
+      // (#170/var-field.js) — a curated field's committed value can still be
+      // invalid against the prepared batch (e.g. a type conflict across
+      // favorites), and without this it silently showed none of the
+      // is-invalid class/tooltip/aria-invalid a plain filter field would.
+      applyFieldState(field.input, getField(p.name, 'execute'), baseTitle);
+      return h('label', { class: 'var-field is-curated' + (p.optional ? ' is-optional' : '') },
+        h('span', { class: 'var-name' }, p.name), field.el);
+    }
     const commitNow = () => {
       if (timer == null) return;
       clearTimeout(timer);

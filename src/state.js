@@ -13,9 +13,8 @@ import { normalizeDashLayout, normalizeDashCols } from './core/dashboard.js';
 import { loadJSON, saveJSON, loadStr, saveStr } from './core/storage.js';
 import { emptyRecentMap } from './core/recent-values.js';
 import {
-  evaluateSpecText, hasBlockingSpecErrors, normalizeSpec, serializeSpec,
+  defaultSpecValidationService, evaluateSpecText, hasBlockingSpecErrors, normalizeSpec, serializeSpec,
 } from './core/spec-draft.js';
-import { querySpecSchemaService } from './core/spec-schema.js';
 import { signal } from '@preact/signals-core';
 
 /**
@@ -45,6 +44,7 @@ export const KEYS = {
   resultRowLimit: 'asb:resultRowLimit',
   varValues: 'asb:varValues',
   filterActive: 'asb:filterActive',
+  filterCurated: 'asb:filterCurated',
   dashLayout: 'asb:dashLayout',
   dashCols: 'asb:dashCols',
   varRecent: 'asb:varRecent',
@@ -82,7 +82,7 @@ export function newTabObj(id) {
     id, name: 'Untitled', sqlDraft: '', specVersion: SPEC_VERSION,
     specText: serializeSpec(specParsed), specParsed, specDiagnostics: [],
     editorMode: 'sql', dirtySql: false, dirtySpec: false,
-    result: null, lastSuccessfulResultColumns: [], savedId: null,
+    result: null, filterPreview: null, lastSuccessfulResultColumns: [], savedId: null,
   };
 }
 
@@ -90,11 +90,11 @@ export function newTabObj(id) {
 export const tabDirty = (tab) => !!(tab && (tab.dirtySql || tab.dirtySpec));
 
 /** Replace a tab's complete parsed Spec draft and serialized text together. */
-export function setTabSpecDraft(tab, spec, { dirty = false, validationService = querySpecSchemaService } = {}) {
+export function setTabSpecDraft(tab, spec, { dirty = false, validationService = defaultSpecValidationService } = {}) {
   const parsed = cloneJson(spec);
   tab.specParsed = parsed;
   tab.specText = serializeSpec(parsed);
-  tab.specDiagnostics = evaluateSpecText(tab.specText, validationService).diagnostics;
+  tab.specDiagnostics = evaluateSpecText(tab.specText, validationService, { sql: tab.sqlDraft, tab }).diagnostics;
   tab.dirtySpec = dirty;
   return tab;
 }
@@ -193,6 +193,13 @@ export function createState(read = { loadJSON, loadStr }) {
     // activation from the stored value (effectiveFilterActive below), so
     // pre-#165 persisted values keep working on first load.
     filterActive: read.loadJSON(KEYS.filterActive, {}),
+    // Last-known curated Dashboard Filter fields (#234), keyed by param name —
+    // the merged `{options, sourceType, …}` bundle each Filter favorite last
+    // produced. Seeded synchronously at the top of renderDashboard so a curated
+    // field paints as the searchable-combobox shape immediately (with
+    // possibly-stale options) instead of flashing a plain text input for one
+    // frame; the live Filter wave replaces it silently on completion.
+    filterCurated: read.loadJSON(KEYS.filterCurated, {}),
     // Per-variable MRU recent-value history (#171): recorded from a
     // successful statement's `boundParams` (#173's immutable snapshots) —
     // never from a keystroke — keyed by variable name and shared/persisted
@@ -288,13 +295,13 @@ const patchedSpec = (spec, patch) => (typeof patch === 'function'
  * Patch one valid open Spec draft without replacing unrelated unsaved fields.
  * External writers use this helper so text and parsed state stay synchronized.
  */
-export function patchSpecDraft(tab, patch, { dirty = true, validationService = querySpecSchemaService } = {}) {
+export function patchSpecDraft(tab, patch, { dirty = true, validationService = defaultSpecValidationService } = {}) {
   if (!tab) return { ok: false, invalidTab: null };
   if (tab.specDiagnostics?.some((diagnostic) => diagnostic.code === 'invalid-json')) {
     return { ok: false, invalidTab: tab };
   }
   const spec = patchedSpec(tab.specParsed, patch);
-  const diagnostics = validationService.validate(spec);
+  const diagnostics = validationService.validate(spec, { sql: tab.sqlDraft, tab });
   if (hasBlockingSpecErrors(diagnostics)) return { ok: false, invalidTab: tab, diagnostics };
   setTabSpecDraft(tab, spec, { dirty, validationService });
   tab.name = queryName({ spec: tab.specParsed });
@@ -311,7 +318,7 @@ export function savedForTab(state, tab) {
  * instead, so popover metadata can never compete with the textual Spec draft.
  */
 export function createSavedQuery(
-  state, tab, name, description, save = saveJSON, now = Date.now(), validationService = querySpecSchemaService,
+  state, tab, name, description, save = saveJSON, now = Date.now(), validationService = defaultSpecValidationService,
 ) {
   if (!tab || tab.savedId) return null;
   const sql = String(tab.sqlDraft || '');
@@ -334,7 +341,7 @@ export function createSavedQuery(
     view,
   });
   const entry = withQuerySpec({ ...draft, id: makeId('s', now), sql }, normalizeSpec(draft.spec));
-  if (hasBlockingSpecErrors(validationService.validate(entry.spec))) return null;
+  if (hasBlockingSpecErrors(validationService.validate(entry.spec, { sql, query: entry, tab }))) return null;
   state.savedQueries.unshift(entry);
   tab.savedId = entry.id;
   tab.specVersion = SPEC_VERSION;
@@ -348,15 +355,15 @@ export function createSavedQuery(
 }
 
 /** Atomically persist both documents of a linked tab in one Library write. */
-export function commitSavedQuery(state, tab, spec, save = saveJSON, validationService = querySpecSchemaService) {
+export function commitSavedQuery(state, tab, spec, save = saveJSON, validationService = defaultSpecValidationService) {
   const index = tab && tab.savedId
     ? state.savedQueries.findIndex((query) => query.id === tab.savedId)
     : -1;
   if (index < 0 || !spec) return null;
   const normalized = normalizeSpec(spec);
-  const diagnostics = validationService.validate(normalized);
-  if (hasBlockingSpecErrors(diagnostics)) return null;
   const sql = String(tab.sqlDraft || '');
+  const diagnostics = validationService.validate(normalized, { sql, tab });
+  if (hasBlockingSpecErrors(diagnostics)) return null;
   const panel = queryPanel({ spec: normalized });
   if (!sql.trim() && panel?.cfg?.type !== 'text') return null;
   const current = state.savedQueries[index];
@@ -376,14 +383,14 @@ export function commitSavedQuery(state, tab, spec, save = saveJSON, validationSe
  * applied independently to the persisted entry and every linked valid draft,
  * preserving unrelated unsaved fields. Invalid JSON blocks the whole write.
  */
-export function patchSavedSpec(state, id, patch, save = saveJSON, validationService = querySpecSchemaService) {
+export function patchSavedSpec(state, id, patch, save = saveJSON, validationService = defaultSpecValidationService) {
   const invalidTab = invalidSpecTabForSaved(state, id);
   if (invalidTab) return { ok: false, invalidTab, entry: null };
   const index = state.savedQueries.findIndex((query) => query.id === id);
   if (index < 0) return { ok: false, invalidTab: null, entry: null };
   const current = state.savedQueries[index];
   const entry = withQuerySpec(current, patchedSpec(current.spec, patch));
-  const entryDiagnostics = validationService.validate(entry.spec);
+  const entryDiagnostics = validationService.validate(entry.spec, { sql: entry.sql, query: entry });
   if (hasBlockingSpecErrors(entryDiagnostics)) {
     return { ok: false, invalidTab: null, entry: null, diagnostics: entryDiagnostics };
   }
@@ -391,7 +398,7 @@ export function patchSavedSpec(state, id, patch, save = saveJSON, validationServ
     tab, spec: patchedSpec(tab.specParsed, patch), dirty: tab.dirtySpec,
   }));
   for (const update of draftUpdates) {
-    const diagnostics = validationService.validate(update.spec);
+    const diagnostics = validationService.validate(update.spec, { sql: update.tab.sqlDraft, tab: update.tab });
     if (hasBlockingSpecErrors(diagnostics)) {
       return { ok: false, invalidTab: update.tab, entry: null, diagnostics };
     }
@@ -411,7 +418,7 @@ export function patchSavedSpec(state, id, patch, save = saveJSON, validationServ
  * `description` is provided (not undefined) it is set/cleared too; pass
  * undefined to leave the existing description untouched (name-only rename).
  */
-export function renameSaved(state, id, name, description, save = saveJSON, validationService = querySpecSchemaService) {
+export function renameSaved(state, id, name, description, save = saveJSON, validationService = defaultSpecValidationService) {
   const nm = String(name || '').trim();
   const index = state.savedQueries.findIndex((q) => q.id === id);
   const entry = index >= 0 ? state.savedQueries[index] : null;
@@ -425,7 +432,7 @@ export function renameSaved(state, id, name, description, save = saveJSON, valid
 }
 
 /** Toggle a saved query's favorite flag. */
-export function toggleFavorite(state, id, save = saveJSON, validationService = querySpecSchemaService) {
+export function toggleFavorite(state, id, save = saveJSON, validationService = defaultSpecValidationService) {
   const index = state.savedQueries.findIndex((q) => q.id === id);
   const entry = index >= 0 ? state.savedQueries[index] : null;
   if (!entry) return;
@@ -524,7 +531,7 @@ export function newLibrary(state, save = saveJSON, saveName = saveStr) {
  *  Clears dirty; open tabs are kept (dangling links pruned). */
 export function replaceLibrary(
   state, queries, fileName, save = saveJSON, saveName = saveStr,
-  genId = () => makeId('s', Date.now()), validationService = querySpecSchemaService,
+  genId = () => makeId('s', Date.now()), validationService = defaultSpecValidationService,
 ) {
   const validated = validationService === false ? queries : validateLibraryQueries(queries, validationService);
   const seen = new Set();
@@ -549,7 +556,7 @@ export function replaceLibrary(
 /** Append `queries` into the library via the standard merge dedupe (sets dirty
  *  through importSaved). Returns { added, updated, skipped }. */
 export function appendLibrary(
-  state, queries, save = saveJSON, genId = () => makeId('s', Date.now()), validationService = querySpecSchemaService,
+  state, queries, save = saveJSON, genId = () => makeId('s', Date.now()), validationService = defaultSpecValidationService,
 ) {
   return importSaved(state, validationService === false ? queries : validateLibraryQueries(queries, validationService), save, genId);
 }

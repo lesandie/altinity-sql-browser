@@ -14,6 +14,8 @@ import {
 import { isAutoRunnable } from '../core/sql-split.js';
 import { isQuerylessPanel } from '../core/panel-cfg.js';
 import { queryDescription, queryFavorite, queryName, queryPanel, queryView } from '../core/saved-query.js';
+import { effectiveDashboardRole } from '../core/result-choice.js';
+import { filterRoleBadge } from './tabs.js';
 
 // Make a Library/History row draggable; dropping it on the editor inserts the
 // query wrapped as a `( … )` subquery (see the editor's drop handler).
@@ -143,6 +145,9 @@ function renderSaved(app, list) {
       h('div', { class: 'top' },
         star,
         h('span', { class: 'name' }, name),
+        effectiveDashboardRole(q.spec) === 'filter'
+          ? filterRoleBadge(app, () => app.actions.loadIntoNewTab(q) || app.activeTab())
+          : null,
         h('button', {
           class: 'sv-act', title: 'Edit name & description',
           onclick: (e) => {
