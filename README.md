@@ -449,6 +449,35 @@ separately from the queries. The **•** dot appears after any change that hasn'
 been written to a file yet (save/rename/delete/favorite/append/rename) and clears
 on Save JSON / Open / New.
 
+### Dashboard Filter sources
+
+A favorited query whose Spec contains `"dashboard": { "role": "filter" }`
+provides curated options instead of a tile. Its SQL must be one parameter-free,
+row-returning statement with no trailing `FORMAT`, and must return exactly one
+row. Each result column targets the Dashboard parameter with the same
+case-sensitive name and may contain an ordered `Array(T)`, an ordered
+`Array(Tuple(value T, label L))`, or a `Map(K,V)` (sorted by label then value).
+The client preserves large integers and Decimals as strings, rejects NULL or
+nested option values, limits each helper to 1,000 options, and falls back to the
+ordinary parameter field when a source, consumer type, or provider conflicts.
+Filter sources run and reconcile saved values before any Panel query starts.
+
+The complete [`query-log-explorer.json`](examples/query-log-explorer.json)
+Library example (load via **File ▾ → Append**) demonstrates every filter
+variant against `system.query_log` on any cluster: three Filter sources, one
+per option shape (`Array(Tuple(value, label))`, `Map(String, String)`, plain
+`Array(T)`), alongside plain auto-detected numeric/text fields — a KPI panel,
+four analytical Panels adapted from the Altinity KB's ["Handy queries for
+system.query_log"](https://kb.altinity.com/altinity-kb-useful-queries/query_log/),
+a Logs panel, and a Text panel explaining the demo.
+
+```sql
+SELECT
+  arraySort(groupUniqArray(toString(Origin))) AS origin,
+  arraySort(groupUniqArray(toString(Dest))) AS destination
+FROM ontime
+```
+
 ## Quick start (development)
 
 ```bash

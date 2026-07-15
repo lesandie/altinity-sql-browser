@@ -6,6 +6,26 @@ import { Icon } from './icons.js';
 import { activeTab, allocTabId, newTabObj, setTabSpecDraft, tabDirty } from '../state.js';
 import { cloneJson, queryName, upgradeSavedQuery } from '../core/saved-query.js';
 import { batch } from '@preact/signals-core';
+import { effectiveDashboardRole } from '../core/result-choice.js';
+
+/**
+ * The "Filter" role badge shown next to a tab name (tabs.js) or a Library row
+ * (saved-history.js) — the one shared button both surfaces need so the label,
+ * tooltip, and click affordance can't drift between them (CLAUDE.md rule 5:
+ * extract on a second consumer). `onOpen()` does whatever surface-specific
+ * work gets a tab active + its spec text, then this reveals the role field.
+ */
+export function filterRoleBadge(app, onOpen) {
+  return h('button', {
+    class: 'query-role-badge', title: 'Open Filter role in Spec',
+    onclick: (event) => {
+      event.stopPropagation();
+      const tab = onOpen();
+      app.actions.setEditorMode('spec');
+      app.specEditor.revealOffset(tab.specText.indexOf('"role"'));
+    },
+  }, 'Filter');
+}
 
 /** Paint the tab strip into app.dom.qtabsInner. */
 export function renderTabs(app) {
@@ -15,6 +35,9 @@ export function renderTabs(app) {
     const isActive = t.id === app.state.activeTabId.value;
     return h('div', { class: 'qtab' + (isActive ? ' active' : ''), onclick: () => selectTab(app, t.id) },
       h('span', { class: 'name' }, t.name),
+      effectiveDashboardRole(t.specParsed) === 'filter'
+        ? filterRoleBadge(app, () => { selectTab(app, t.id); return t; })
+        : null,
       tabDirty(t) ? h('span', { class: 'dirty' }) : null,
       app.state.tabs.value.length > 1
         ? h('button', {
